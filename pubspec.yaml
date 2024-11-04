@@ -13,6 +13,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
   webview_flutter: ^4.10.0
   shared_preferences: ^2.3.2
 

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
 void main() {
   runApp(MyBrowserApp());
@@ -12,8 +13,17 @@ class MyBrowserApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'My Mini Browser',
+      locale: Locale('he'),
+      supportedLocales: [
+        Locale('he'),
+      ],
+      localizationsDelegates: [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       theme: ThemeData(
-        primarySwatch: Colors.blue,
+        primarySwatch: Colors.purple,
       ),
       home: BrowserHomePage(),
     );
@@ -154,36 +164,40 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
       builder: (context) {
         TextEditingController nameController = TextEditingController();
         nameController.text = _getDomain(url);
-        return AlertDialog(
-          title: Text('הוסף סימניה'),
-          content: TextField(
-            controller: nameController,
-            decoration: InputDecoration(hintText: 'שם הסימניה'),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                String name = nameController.text.trim();
-                if (name.isEmpty) return;
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            title: Text('הוסף סימניה'),
+            content: TextField(
+              controller: nameController,
+              decoration: InputDecoration(hintText: 'שם הסימניה'),
+              textDirection: TextDirection.rtl,
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  String name = nameController.text.trim();
+                  if (name.isEmpty) return;
 
-                setState(() {
-                  bookmarks.add({
-                    'name': name,
-                    'url': url,
+                  setState(() {
+                    bookmarks.add({
+                      'name': name,
+                      'url': url,
+                    });
+                    _saveBookmarks();
                   });
-                  _saveBookmarks();
-                });
-                Navigator.of(context).pop();
-              },
-              child: Text('שמור'),
-            ),
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
-              child: Text('ביטול'),
-            ),
-          ],
+                  Navigator.of(context).pop();
+                },
+                child: Text('שמור'),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                },
+                child: Text('ביטול'),
+              ),
+            ],
+          ),
         );
       },
     );
@@ -252,6 +266,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
     return Scaffold(
       appBar: showBars
           ? AppBar(
+              backgroundColor: Theme.of(context).primaryColor,
               title: Container(
                 height: 40.0,
                 child: TextField(
@@ -259,6 +274,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                   focusNode: _focusNode,
                   decoration: InputDecoration(
                     hintText: 'הזן כתובת URL או מונח חיפוש',
+                    hintTextDirection: TextDirection.rtl,
                     fillColor: Colors.white,
                     filled: true,
                     border: OutlineInputBorder(
@@ -267,16 +283,10 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                     ),
                     contentPadding: EdgeInsets.symmetric(horizontal: 12.0),
                   ),
+                  textDirection: TextDirection.ltr,
+                  textAlign: TextAlign.left,
                   keyboardType: TextInputType.url,
                   textInputAction: TextInputAction.go,
-                  onChanged: (value) {
-                    // ברגע שהמשתמש מתחיל להקליד, ננקה את השדה
-                    if (_urlController.text.isNotEmpty) {
-                      _urlController.selection = TextSelection.fromPosition(
-                        TextPosition(offset: _urlController.text.length),
-                      );
-                    }
-                  },
                   onSubmitted: (value) => _navigateToUrl(),
                 ),
               ),
@@ -310,7 +320,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
         height: showBars ? 50.0 : 0.0, // הגדרת גובה קטן יותר
         child: showBars
             ? BottomAppBar(
-                color: Colors.blue, // הגדרת צבע חדש לסרגל התחתון
+                color: Theme.of(context).primaryColor,
                 child: Row(
                   mainAxisAlignment:
                       MainAxisAlignment.spaceEvenly, // הפחתת רווח בין הכפתורים
@@ -378,27 +388,31 @@ class BookmarksPage extends StatelessWidget {
       appBar: AppBar(
         title: Text('סימניות'),
       ),
-      body: bookmarks.isEmpty
-          ? Center(child: Text('אין סימניות שמורות.'))
-          : ListView.builder(
-              itemCount: bookmarks.length,
-              itemBuilder: (context, index) {
-                var bookmark = bookmarks[index];
-                return ListTile(
-                  title: Text(bookmark['name']!),
-                  subtitle: Text(bookmark['url']!),
-                  onTap: () {
-                    onSelect(bookmark);
-                  },
-                  trailing: IconButton(
-                    icon: Icon(Icons.delete),
-                    onPressed: () {
-                      onDelete(bookmark);
+      body: Directionality(
+        textDirection: TextDirection.rtl,
+        child: bookmarks.isEmpty
+            ? Center(child: Text('אין סימניות שמורות.'))
+            : ListView.builder(
+                itemCount: bookmarks.length,
+                itemBuilder: (context, index) {
+                  var bookmark = bookmarks[index];
+                  return ListTile(
+                    leading: Icon(Icons.bookmark),
+                    title: Text(bookmark['name']!),
+                    subtitle: Text(bookmark['url']!),
+                    onTap: () {
+                      onSelect(bookmark);
                     },
-                  ),
-                );
-              },
-            ),
+                    trailing: IconButton(
+                      icon: Icon(Icons.delete),
+                      onPressed: () {
+                        onDelete(bookmark);
+                      },
+                    ),
+                  );
+                },
+              ),
+      ),
     );
   }
 }
