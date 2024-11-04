@@ -23,7 +23,26 @@ class MyBrowserApp extends StatelessWidget {
         GlobalCupertinoLocalizations.delegate,
       ],
       theme: ThemeData(
-        primarySwatch: Colors.purple,
+        useMaterial3: true, // שימוש ב-Material 3
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.purple),
+        appBarTheme: AppBarTheme(
+          backgroundColor: Colors.purple,
+          elevation: 4,
+        ),
+        bottomAppBarTheme: BottomAppBarTheme(
+          color: Colors.purple.shade700,
+        ),
+        floatingActionButtonTheme: FloatingActionButtonThemeData(
+          backgroundColor: Colors.purple,
+        ),
+        iconTheme: IconThemeData(
+          color: Colors.white, // צבע האייקונים הראשי
+          size: 24,
+        ),
+        textTheme: TextTheme(
+          bodyLarge: TextStyle(color: Colors.white),
+          bodyMedium: TextStyle(color: Colors.white),
+        ),
       ),
       home: BrowserHomePage(),
     );
@@ -52,7 +71,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
       ..addJavaScriptChannel(
         'ScrollChannel',
         onMessageReceived: (JavaScriptMessage message) {
-          // ההודעה צריכה להיות 'up' או 'down'
           if (message.message == 'up') {
             setState(() {
               showBars = true;
@@ -76,14 +94,12 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
               isLoading = false;
               _urlController.text = url;
             });
-            // הזרקת JavaScript לזיהוי גלילה
             _injectScrollListener();
           },
         ),
       )
-      ..loadRequest(Uri.parse('about:blank')); // דף בית ריק
+      ..loadRequest(Uri.parse('about:blank'));
 
-    // הוספת מאזין לפוקוס כדי לנקות את שדה החיפוש
     _focusNode.addListener(() {
       if (_focusNode.hasFocus) {
         setState(() {
@@ -100,13 +116,11 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
     super.dispose();
   }
 
-  // פונקציה לבדיקה אם הקלט הוא כתובת URL תקנית
   bool isValidUrl(String input) {
-    // ביטוי רגולרי מתקדם לזיהוי כתובות URL
     final RegExp urlRegExp = RegExp(
-      r'^(https?:\/\/)?' // אפשרות לסכמה http או https
-      r'((([a-zA-Z0-9\-]+\.)+[a-zA-Z]{2,}))' // שם דומיין
-      r'(\/[^\s]*)?$', // אפשרות לנתיב
+      r'^(https?:\/\/)?'
+      r'((([a-zA-Z0-9\-]+\.)+[a-zA-Z]{2,}))'
+      r'(\/[^\s]*)?$',
       caseSensitive: false,
     );
     return urlRegExp.hasMatch(input);
@@ -119,21 +133,18 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
     if (input.isEmpty) return;
 
     if (isValidUrl(input)) {
-      // הקלט הוא כתובת URL תקנית
       if (input.startsWith('http://') || input.startsWith('https://')) {
         url = input;
       } else {
-        // אם אין סכמה, נוסיף אוטומטית https://
         url = 'https://$input';
       }
     } else {
-      // הקלט אינו כתובת URL תקנית, נבצע חיפוש בגוגל
       String query = Uri.encodeComponent(input);
       url = 'https://www.google.com/search?q=$query';
     }
 
     _controller.loadRequest(Uri.parse(url));
-    FocusScope.of(context).unfocus(); // הסתרת המקלדת
+    FocusScope.of(context).unfocus();
   }
 
   Future<void> _loadBookmarks() async {
@@ -167,10 +178,23 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
         return Directionality(
           textDirection: TextDirection.rtl,
           child: AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20.0),
+            ),
             title: Text('הוסף סימניה'),
             content: TextField(
               controller: nameController,
-              decoration: InputDecoration(hintText: 'שם הסימניה'),
+              decoration: InputDecoration(
+                hintText: 'שם הסימניה',
+                filled: true,
+                fillColor: Colors.grey.shade200,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12.0),
+                  borderSide: BorderSide.none,
+                ),
+                contentPadding:
+                    EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+              ),
               textDirection: TextDirection.rtl,
             ),
             actions: [
@@ -188,13 +212,19 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                   });
                   Navigator.of(context).pop();
                 },
-                child: Text('שמור'),
+                child: Text(
+                  'שמור',
+                  style: TextStyle(color: Theme.of(context).primaryColor),
+                ),
               ),
               TextButton(
                 onPressed: () {
                   Navigator.of(context).pop();
                 },
-                child: Text('ביטול'),
+                child: Text(
+                  'ביטול',
+                  style: TextStyle(color: Colors.red),
+                ),
               ),
             ],
           ),
@@ -241,13 +271,11 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
         window.addEventListener('scroll', function() {
           var scrollTop = window.pageYOffset || document.documentElement.scrollTop;
           if (scrollTop > lastScrollTop){
-            // הגלילה למטה
             ScrollChannel.postMessage('down');
           } else {
-            // הגלילה למעלה
             ScrollChannel.postMessage('up');
           }
-          lastScrollTop = scrollTop <= 0 ? 0 : scrollTop; // עבור Chrome
+          lastScrollTop = scrollTop <= 0 ? 0 : scrollTop;
         }, false);
       })();
     """;
@@ -266,28 +294,36 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
     return Scaffold(
       appBar: showBars
           ? AppBar(
-              backgroundColor: Theme.of(context).primaryColor,
               title: Container(
-                height: 40.0,
+                height: 50.0,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12.0),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black12,
+                      blurRadius: 4,
+                      offset: Offset(0, 2),
+                    ),
+                  ],
+                ),
                 child: TextField(
                   controller: _urlController,
                   focusNode: _focusNode,
                   decoration: InputDecoration(
                     hintText: 'הזן כתובת URL או מונח חיפוש',
-                    hintTextDirection: TextDirection.rtl,
-                    fillColor: Colors.white,
-                    filled: true,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8.0),
-                      borderSide: BorderSide.none,
-                    ),
-                    contentPadding: EdgeInsets.symmetric(horizontal: 12.0),
+                    hintStyle: TextStyle(color: Colors.grey),
+                    border: InputBorder.none,
+                    prefixIcon: Icon(Icons.search, color: Colors.grey),
+                    contentPadding:
+                        EdgeInsets.symmetric(horizontal: 12.0, vertical: 14.0),
                   ),
                   textDirection: TextDirection.ltr,
                   textAlign: TextAlign.left,
                   keyboardType: TextInputType.url,
                   textInputAction: TextInputAction.go,
                   onSubmitted: (value) => _navigateToUrl(),
+                  style: TextStyle(color: Colors.black87),
                 ),
               ),
               actions: [
@@ -300,7 +336,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
           : null,
       body: GestureDetector(
         onTap: () {
-          // הסתרה או הצגה של הסרגלים בעת לחיצה על המסך
           setState(() {
             showBars = !showBars;
           });
@@ -310,62 +345,71 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
             WebViewWidget(controller: _controller),
             if (isLoading)
               Center(
-                child: CircularProgressIndicator(),
+                child: CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                      Theme.of(context).colorScheme.primary),
+                ),
               ),
           ],
         ),
       ),
       bottomNavigationBar: AnimatedContainer(
         duration: Duration(milliseconds: 200),
-        height: showBars ? 50.0 : 0.0, // הגדרת גובה קטן יותר
+        height: showBars ? 60.0 : 0.0,
         child: showBars
             ? BottomAppBar(
-                color: Theme.of(context).primaryColor,
-                child: Row(
-                  mainAxisAlignment:
-                      MainAxisAlignment.spaceEvenly, // הפחתת רווח בין הכפתורים
-                  children: [
-                    IconButton(
-                      icon: Icon(Icons.home, size: 20.0), // כפתור דף הבית
-                      onPressed: _goHome,
-                    ),
-                    IconButton(
-                      icon: Icon(Icons.arrow_back, size: 20.0), // כפתור חזרה
-                      onPressed: () async {
+                color: Theme.of(context).bottomAppBarTheme.color,
+                elevation: 8,
+                shape: CircularNotchedRectangle(),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                  child: Row(
+                    children: [
+                      Expanded(
+                          child:
+                              _buildIconButton(Icons.home, _goHome, 'דף הבית')),
+                      Expanded(
+                          child: _buildIconButton(Icons.arrow_back, () async {
                         if (await _controller.canGoBack()) {
                           _controller.goBack();
                         }
-                      },
-                    ),
-                    IconButton(
-                      icon:
-                          Icon(Icons.arrow_forward, size: 20.0), // כפתור קדימה
-                      onPressed: () async {
+                      }, 'חזרה')),
+                      Expanded(
+                          child:
+                              _buildIconButton(Icons.arrow_forward, () async {
                         if (await _controller.canGoForward()) {
                           _controller.goForward();
                         }
-                      },
-                    ),
-                    IconButton(
-                      icon: Icon(Icons.refresh, size: 20.0), // כפתור רענון
-                      onPressed: () {
+                      }, 'קדימה')),
+                      Expanded(
+                          child: _buildIconButton(Icons.refresh, () {
                         _controller.reload();
-                      },
-                    ),
-                    IconButton(
-                      icon: Icon(Icons.bookmark_add,
-                          size: 20.0), // כפתור הוספת סימניה
-                      onPressed: _addBookmark,
-                    ),
-                    IconButton(
-                      icon: Icon(Icons.bookmarks,
-                          size: 20.0), // כפתור פתיחת סימניות
-                      onPressed: _openBookmarks,
-                    ),
-                  ],
+                      }, 'רענן')),
+                      Expanded(
+                          child: _buildIconButton(
+                              Icons.bookmark_add, _addBookmark, 'הוסף סימניה')),
+                      Expanded(
+                          child: _buildIconButton(
+                              Icons.bookmarks, _openBookmarks, 'סימניות')),
+                    ],
+                  ),
                 ),
               )
             : SizedBox.shrink(),
+      ),
+    );
+  }
+
+  Widget _buildIconButton(
+      IconData icon, VoidCallback onPressed, String tooltip) {
+    return Tooltip(
+      message: tooltip,
+      child: IconButton(
+        icon: Icon(icon),
+        onPressed: onPressed,
+        color: Colors.white, // צבע האייקונים
+        padding: EdgeInsets.zero, // הפחתת רווח פנימי
+        constraints: BoxConstraints(), // הסרת הגבלות נוספות
       ),
     );
   }
@@ -387,27 +431,48 @@ class BookmarksPage extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: Text('סימניות'),
+        centerTitle: true,
       ),
       body: Directionality(
         textDirection: TextDirection.rtl,
         child: bookmarks.isEmpty
-            ? Center(child: Text('אין סימניות שמורות.'))
+            ? Center(
+                child: Text(
+                  'אין סימניות שמורות.',
+                  style: TextStyle(fontSize: 18, color: Colors.grey),
+                ),
+              )
             : ListView.builder(
                 itemCount: bookmarks.length,
                 itemBuilder: (context, index) {
                   var bookmark = bookmarks[index];
-                  return ListTile(
-                    leading: Icon(Icons.bookmark),
-                    title: Text(bookmark['name']!),
-                    subtitle: Text(bookmark['url']!),
-                    onTap: () {
-                      onSelect(bookmark);
-                    },
-                    trailing: IconButton(
-                      icon: Icon(Icons.delete),
-                      onPressed: () {
-                        onDelete(bookmark);
+                  return Card(
+                    margin:
+                        EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12.0),
+                    ),
+                    elevation: 2,
+                    child: ListTile(
+                      leading: Icon(Icons.bookmark,
+                          color: Theme.of(context).colorScheme.primary),
+                      title: Text(
+                        bookmark['name']!,
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      subtitle: Text(
+                        bookmark['url']!,
+                        style: TextStyle(color: Colors.grey.shade600),
+                      ),
+                      onTap: () {
+                        onSelect(bookmark);
                       },
+                      trailing: IconButton(
+                        icon: Icon(Icons.delete, color: Colors.red),
+                        onPressed: () {
+                          onDelete(bookmark);
+                        },
+                      ),
                     ),
                   );
                 },
