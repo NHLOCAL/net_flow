@@ -1,11 +1,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+
     <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+
 
     <application
-        android:label="net_flow"
+        android:label="Net Flow"
         android:name="${applicationName}"
-          android:label="Net Flow"
         android:icon="@mipmap/ic_launcher">
         <activity
             android:name=".MainActivity"
