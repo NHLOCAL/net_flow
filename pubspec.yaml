@@ -15,8 +15,9 @@ dependencies:
     sdk: flutter
   flutter_localizations:
     sdk: flutter
-  webview_flutter: ^4.10.0
+  flutter_inappwebview: ^6.1.5
   shared_preferences: ^2.3.2
+  cupertino_icons: ^1.0.2
 
 dev_dependencies:
   flutter_test:

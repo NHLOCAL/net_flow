@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:webview_flutter/webview_flutter.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await InAppWebViewController.setWebContentsDebuggingEnabled(true);
   runApp(MyBrowserApp());
 }
 
@@ -23,7 +25,7 @@ class MyBrowserApp extends StatelessWidget {
         GlobalCupertinoLocalizations.delegate,
       ],
       theme: ThemeData(
-        useMaterial3: true, // שימוש ב-Material 3
+        useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.purple),
         appBarTheme: AppBarTheme(
           backgroundColor: Colors.purple,
@@ -36,7 +38,7 @@ class MyBrowserApp extends StatelessWidget {
           backgroundColor: Colors.purple,
         ),
         iconTheme: IconThemeData(
-          color: Colors.white, // צבע האייקונים הראשי
+          color: Colors.white,
           size: 24,
         ),
         textTheme: TextTheme(
@@ -55,55 +57,25 @@ class BrowserHomePage extends StatefulWidget {
 }
 
 class _BrowserHomePageState extends State<BrowserHomePage> {
-  late final WebViewController _controller;
+  late InAppWebViewController _webViewController;
   final TextEditingController _urlController = TextEditingController();
   final FocusNode _focusNode = FocusNode();
   bool isLoading = true;
   bool showBars = true;
   List<Map<String, String>> bookmarks = [];
+  double lastScrollPosition = 0;
 
   @override
   void initState() {
     super.initState();
     _loadBookmarks();
-    _controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..addJavaScriptChannel(
-        'ScrollChannel',
-        onMessageReceived: (JavaScriptMessage message) {
-          if (message.message == 'up') {
-            setState(() {
-              showBars = true;
-            });
-          } else if (message.message == 'down') {
-            setState(() {
-              showBars = false;
-            });
-          }
-        },
-      )
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onPageStarted: (url) {
-            setState(() {
-              isLoading = true;
-            });
-          },
-          onPageFinished: (url) {
-            setState(() {
-              isLoading = false;
-              _urlController.text = url;
-            });
-            _injectScrollListener();
-          },
-        ),
-      )
-      ..loadRequest(Uri.parse('about:blank'));
-
     _focusNode.addListener(() {
       if (_focusNode.hasFocus) {
         setState(() {
-          _urlController.clear();
+          _urlController.selection = TextSelection(
+            baseOffset: 0,
+            extentOffset: _urlController.text.length,
+          );
         });
       }
     });
@@ -143,7 +115,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
       url = 'https://www.google.com/search?q=$query';
     }
 
-    _controller.loadRequest(Uri.parse(url));
+    _webViewController.loadUrl(
+      urlRequest: URLRequest(url: WebUri(url)),
+    );
     FocusScope.of(context).unfocus();
   }
 
@@ -249,7 +223,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
         builder: (context) => BookmarksPage(
           bookmarks: bookmarks,
           onSelect: (bookmark) {
-            _controller.loadRequest(Uri.parse(bookmark['url']!));
+            _webViewController.loadUrl(
+              urlRequest: URLRequest(url: WebUri(bookmark['url']!)),
+            );
             _urlController.text = bookmark['url']!;
             Navigator.pop(context);
           },
@@ -264,26 +240,10 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
     );
   }
 
-  void _injectScrollListener() {
-    String js = """
-      (function() {
-        var lastScrollTop = 0;
-        window.addEventListener('scroll', function() {
-          var scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-          if (scrollTop > lastScrollTop){
-            ScrollChannel.postMessage('down');
-          } else {
-            ScrollChannel.postMessage('up');
-          }
-          lastScrollTop = scrollTop <= 0 ? 0 : scrollTop;
-        }, false);
-      })();
-    """;
-    _controller.runJavaScript(js);
-  }
-
   void _goHome() {
-    _controller.loadRequest(Uri.parse('about:blank'));
+    _webViewController.loadUrl(
+      urlRequest: URLRequest(url: WebUri('about:blank')),
+    );
     setState(() {
       _urlController.clear();
     });
@@ -314,7 +274,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                     hintText: 'הזן כתובת URL או מונח חיפוש',
                     hintStyle: TextStyle(color: Colors.grey),
                     border: InputBorder.none,
-                    prefixIcon: Icon(Icons.search, color: Colors.grey),
                     contentPadding:
                         EdgeInsets.symmetric(horizontal: 12.0, vertical: 14.0),
                   ),
@@ -334,24 +293,65 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
               ],
             )
           : null,
-      body: GestureDetector(
-        onTap: () {
-          setState(() {
-            showBars = !showBars;
-          });
-        },
-        child: Stack(
-          children: [
-            WebViewWidget(controller: _controller),
-            if (isLoading)
-              Center(
-                child: CircularProgressIndicator(
-                  valueColor: AlwaysStoppedAnimation<Color>(
-                      Theme.of(context).colorScheme.primary),
-                ),
+      body: Stack(
+        children: [
+          InAppWebView(
+            initialUrlRequest: URLRequest(url: WebUri('about:blank')),
+            onWebViewCreated: (controller) {
+              _webViewController = controller;
+            },
+            onLoadStart: (controller, url) {
+              setState(() {
+                isLoading = true;
+              });
+            },
+            onLoadStop: (controller, url) async {
+              setState(() {
+                isLoading = false;
+                _urlController.text = url?.toString() ?? '';
+              });
+            },
+            onScrollChanged: (controller, x, y) {
+              if (y > lastScrollPosition && y - lastScrollPosition > 10) {
+                // גלילה למטה
+                if (showBars) {
+                  setState(() {
+                    showBars = false;
+                  });
+                }
+              } else if (y < lastScrollPosition &&
+                  lastScrollPosition - y > 10) {
+                // גלילה למעלה
+                if (!showBars) {
+                  setState(() {
+                    showBars = true;
+                  });
+                }
+              }
+              lastScrollPosition = y.toDouble();
+            },
+            onLoadError: (controller, url, code, message) {
+              setState(() {
+                isLoading = false;
+              });
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('הטעינה נכשלה: $message')),
+              );
+            },
+            androidOnGeolocationPermissionsShowPrompt:
+                (controller, origin) async {
+              return GeolocationPermissionShowPromptResponse(
+                  origin: origin, allow: true, retain: false);
+            },
+          ),
+          if (isLoading)
+            Center(
+              child: CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(
+                    Theme.of(context).colorScheme.primary),
               ),
-          ],
-        ),
+            ),
+        ],
       ),
       bottomNavigationBar: AnimatedContainer(
         duration: Duration(milliseconds: 200),
@@ -370,20 +370,20 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                               _buildIconButton(Icons.home, _goHome, 'דף הבית')),
                       Expanded(
                           child: _buildIconButton(Icons.arrow_back, () async {
-                        if (await _controller.canGoBack()) {
-                          _controller.goBack();
+                        if (await _webViewController.canGoBack()) {
+                          _webViewController.goBack();
                         }
                       }, 'חזרה')),
                       Expanded(
                           child:
                               _buildIconButton(Icons.arrow_forward, () async {
-                        if (await _controller.canGoForward()) {
-                          _controller.goForward();
+                        if (await _webViewController.canGoForward()) {
+                          _webViewController.goForward();
                         }
                       }, 'קדימה')),
                       Expanded(
                           child: _buildIconButton(Icons.refresh, () {
-                        _controller.reload();
+                        _webViewController.reload();
                       }, 'רענן')),
                       Expanded(
                           child: _buildIconButton(
@@ -407,9 +407,10 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
       child: IconButton(
         icon: Icon(icon),
         onPressed: onPressed,
-        color: Colors.white, // צבע האייקונים
-        padding: EdgeInsets.zero, // הפחתת רווח פנימי
-        constraints: BoxConstraints(), // הסרת הגבלות נוספות
+        color: Colors.white,
+        padding: EdgeInsets.zero,
+        constraints: BoxConstraints(),
+        tooltip: tooltip,
       ),
     );
   }
