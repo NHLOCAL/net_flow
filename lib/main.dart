@@ -311,9 +311,23 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                 _urlController.text = url?.toString() ?? '';
               });
             },
+            onReceivedError: (controller, request, error) {
+              setState(() {
+                isLoading = false;
+              });
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('הטעינה נכשלה: ${error.description}')),
+              );
+            },
+            onGeolocationPermissionsShowPrompt: (controller, origin) async {
+              return GeolocationPermissionShowPromptResponse(
+                origin: origin,
+                allow: true,
+                retain: false,
+              );
+            },
             onScrollChanged: (controller, x, y) {
               if (y > lastScrollPosition && y - lastScrollPosition > 10) {
-                // גלילה למטה
                 if (showBars) {
                   setState(() {
                     showBars = false;
@@ -321,7 +335,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                 }
               } else if (y < lastScrollPosition &&
                   lastScrollPosition - y > 10) {
-                // גלילה למעלה
                 if (!showBars) {
                   setState(() {
                     showBars = true;
@@ -329,19 +342,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                 }
               }
               lastScrollPosition = y.toDouble();
-            },
-            onLoadError: (controller, url, code, message) {
-              setState(() {
-                isLoading = false;
-              });
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('הטעינה נכשלה: $message')),
-              );
-            },
-            androidOnGeolocationPermissionsShowPrompt:
-                (controller, origin) async {
-              return GeolocationPermissionShowPromptResponse(
-                  origin: origin, allow: true, retain: false);
             },
           ),
           if (isLoading)
