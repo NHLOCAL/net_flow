@@ -4,8 +4,23 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
+// *** הוספת import-ים חדשים ***
+import 'package:permission_handler/permission_handler.dart';
+import 'package:flutter_downloader/flutter_downloader.dart';
+import 'package:path_provider/path_provider.dart';
+import 'dart:io';
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // *** אתחול flutter_downloader ***
+  // הערה: יש להוסיף 'WidgetsFlutterBinding.ensureInitialized();' לפני כן.
+  await FlutterDownloader.initialize(
+      debug: true, // set to false in release version
+      ignoreSsl:
+          true // If you want to download files from servers with self-signed certificates
+      );
+
   await InAppWebViewController.setWebContentsDebuggingEnabled(true);
   runApp(MyBrowserApp());
 }
@@ -45,7 +60,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
 
   bool isLoading = true;
   bool showBars = true;
-  bool _isEditingUrl = false; // *** משתנה חדש לשליטה במצב הסרגל העליון ***
+  bool _isEditingUrl = false;
   List<Map<String, String>> bookmarks = [];
   double lastScrollPosition = 0;
   bool _isAnimatingBars = false;
@@ -55,10 +70,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
   void initState() {
     super.initState();
     _loadBookmarks();
-
     _urlController.addListener(() => setState(() {}));
-
-    // מאזין למצב הפוקוס כדי לצאת ממצב עריכה
     _focusNode.addListener(() {
       if (!_focusNode.hasFocus && _isEditingUrl) {
         setState(() {
@@ -76,7 +88,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
   }
 
   bool isValidUrl(String input) {
-    // ... (no changes here)
     final RegExp urlRegExp = RegExp(
       r'^(https?:\/\/)?'
       r'((([a-zA-Z0-9\-]+\.)+[a-zA-Z]{2,}))'
@@ -89,9 +100,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
   void _navigateToUrl() {
     String input = _urlController.text.trim();
     String url;
-
     if (input.isEmpty) return;
-
     if (isValidUrl(input)) {
       if (input.startsWith('http://') || input.startsWith('https://')) {
         url = input;
@@ -102,12 +111,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
       String query = Uri.encodeComponent(input);
       url = 'https://www.google.com/search?q=$query';
     }
-
     _webViewController.loadUrl(
       urlRequest: URLRequest(url: WebUri(url)),
     );
-
-    // יציאה ממצב עריכה לאחר ניווט
     _focusNode.unfocus();
     setState(() {
       _isEditingUrl = false;
@@ -115,7 +121,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
   }
 
   Future<void> _loadBookmarks() async {
-    // ... (no changes here)
     SharedPreferences prefs = await SharedPreferences.getInstance();
     String? bookmarksString = prefs.getString('bookmarks');
     if (bookmarksString != null) {
@@ -129,7 +134,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
   }
 
   Future<void> _saveBookmarks() async {
-    // ... (no changes here)
     SharedPreferences prefs = await SharedPreferences.getInstance();
     String bookmarksString = jsonEncode(bookmarks);
     await prefs.setString('bookmarks', bookmarksString);
@@ -138,7 +142,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
   void _addBookmark() {
     String url = _urlController.text;
     if (url.isEmpty || url == 'about:blank') return;
-
     showDialog(
       context: context,
       builder: (context) {
@@ -147,7 +150,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
         return Directionality(
           textDirection: TextDirection.rtl,
           child: AlertDialog(
-            // *** עיצוב משופר ל-Dialog ***
             shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16.0)),
             icon: Icon(Icons.bookmark_add_outlined,
@@ -171,15 +173,11 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                 onPressed: () {
                   String name = nameController.text.trim();
                   if (name.isEmpty) return;
-
                   setState(() {
                     bookmarks.add({'name': name, 'url': url});
                     _saveBookmarks();
                   });
-
                   Navigator.of(context).pop();
-
-                  // משוב למשתמש
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text("הסימניה '$name' נשמרה"),
@@ -215,7 +213,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
   }
 
   void _openBookmarks() {
-    // ... (no changes here)
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -244,14 +241,11 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
   }
 
   void _setBarsVisibility(bool visible) {
-    // ... (no changes here)
     if (showBars == visible || _isAnimatingBars) return;
-
     setState(() {
       _isAnimatingBars = true;
       showBars = visible;
     });
-
     Future.delayed(const Duration(milliseconds: 250), () {
       if (mounted) {
         setState(() {
@@ -261,7 +255,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
     });
   }
 
-  // *** ווידג'ט חדש לבניית הסרגל העליון הדינאמי ***
   Widget _buildUrlBar() {
     return GestureDetector(
       onTap: () {
@@ -283,7 +276,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
         child: Stack(
           alignment: Alignment.center,
           children: [
-            // מצב תצוגה
             AnimatedOpacity(
               opacity: _isEditingUrl ? 0.0 : 1.0,
               duration: Duration(milliseconds: 200),
@@ -308,7 +300,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                 ),
               ),
             ),
-            // מצב עריכה
             AnimatedOpacity(
               opacity: _isEditingUrl ? 1.0 : 0.0,
               duration: Duration(milliseconds: 200),
@@ -352,7 +343,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
       backgroundColor: Theme.of(context).colorScheme.surfaceContainerLowest,
       appBar: showBars
           ? AppBar(
-              // *** עיצוב AppBar חדש ***
               backgroundColor: Theme.of(context).colorScheme.surfaceContainer,
               title: _buildUrlBar(),
               actions: [
@@ -388,7 +378,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
               });
             },
             onReceivedError: (controller, request, error) {
-              // ... (no changes here)
               setState(() => isLoading = false);
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -397,7 +386,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
               }
             },
             onGeolocationPermissionsShowPrompt: (controller, origin) async {
-              // ... (no changes here)
               return GeolocationPermissionShowPromptResponse(
                 origin: origin,
                 allow: true,
@@ -405,7 +393,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
               );
             },
             onScrollChanged: (controller, x, y) {
-              // ... (no changes here)
               if (_isAnimatingBars) return;
               final double scrollDelta = y - lastScrollPosition;
 
@@ -417,6 +404,53 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                 _setBarsVisibility(true);
               }
               lastScrollPosition = y.toDouble();
+            },
+
+            // *** הוספת מטפל הורדות ***
+            onDownloadStartRequest: (controller, downloadStartRequest) async {
+              // בקשת הרשאת אחסון
+              var status = await Permission.storage.request();
+              if (status.isGranted) {
+                // קביעת נתיב ההורדה
+                String? path;
+                if (Platform.isAndroid) {
+                  path = '/storage/emulated/0/Download';
+                } else {
+                  path = (await getApplicationDocumentsDirectory()).path;
+                }
+
+                // התחלת ההורדה
+                await FlutterDownloader.enqueue(
+                  url: downloadStartRequest.url.toString(),
+                  headers: {}, // optional: header send with url (auth token etc)
+                  savedDir: path,
+                  showNotification:
+                      true, // show download progress in status bar (recommended)
+                  openFileFromNotification:
+                      true, // click on notification to open downloaded file (recommended)
+                  saveInPublicStorage: true,
+                );
+
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('ההורדה החלה...')),
+                  );
+                }
+              } else {
+                print('Permission Denied');
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('ההרשאה לשמירת קבצים נדחתה.')),
+                  );
+                }
+              }
+            },
+
+            // *** הוספת מטפל הרשאות כללי (מצלמה, מיקרופון וכו') ***
+            onPermissionRequest: (controller, request) async {
+              return PermissionResponse(
+                  resources: request.resources,
+                  action: PermissionResponseAction.GRANT);
             },
           ),
           if (isLoading) Center(child: CircularProgressIndicator()),
@@ -467,8 +501,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
   }
 }
 
+// אין שינויים בחלק הזה
 class BookmarksPage extends StatelessWidget {
-  // ... (no changes in BookmarksPage)
   final List<Map<String, String>> bookmarks;
   final Function(Map<String, String>) onSelect;
   final Function(Map<String, String>) onDelete;
