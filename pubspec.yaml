@@ -7,7 +7,7 @@ version: 0.3.0+3
 publish_to: 'none' 
 
 environment:
-  sdk: ">=2.17.0 <3.0.0"
+  sdk: ">=3.0.0 <4.0.0"
 
 dependencies:
   flutter:
@@ -20,11 +20,13 @@ dependencies:
   permission_handler: ^11.3.1  # לניהול הרשאות בזמן ריצה
   flutter_downloader: ^1.11.7   # לניהול הורדת קבצים (עובד גם ברקע)
   path_provider: ^2.1.3         # למציאת נתיבי שמירה במכשיר
+  url_launcher: ^6.3.1          # לפתיחת קישורים חיצוניים
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_launcher_icons: ^0.13.1
+  flutter_lints: ^5.0.0
 
 
 flutter:
