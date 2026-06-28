@@ -15,6 +15,7 @@ import '../models/site_permission_decision.dart';
 import '../services/android_browser_channel.dart';
 import '../services/bookmark_store.dart';
 import '../services/download_service.dart';
+import '../services/netfree_browser_policy.dart';
 import '../services/settings_store.dart';
 import '../services/site_permission_store.dart';
 import '../services/url_resolver.dart';
@@ -53,6 +54,7 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
   String? _pendingInitialUrl;
   int _webViewSeed = 0;
   Timer? _loadTimeoutTimer;
+  final NetfreeBrowserPolicy _netfreePolicy = const NetfreeBrowserPolicy();
 
   @override
   void initState() {
@@ -596,11 +598,6 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
           state: _state,
           bookmarks: _bookmarks,
           onNavigate: _loadUrl,
-          onBack: () => _webViewController?.goBack(),
-          onForward: () => _webViewController?.goForward(),
-          onReload: () => _webViewController?.reload(),
-          onStop: () => _webViewController?.stopLoading(),
-          onHome: _showHome,
           onAddBookmark: _addBookmark,
           onOpenBookmark: (bookmark) => _loadUrl(bookmark.url),
           onDeleteBookmark: _deleteBookmark,
@@ -608,6 +605,43 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
         );
       },
     );
+  }
+
+  Future<void> _goBack() async {
+    await _webViewController?.goBack();
+    await _refreshNavigationState();
+  }
+
+  Future<void> _goForward() async {
+    await _webViewController?.goForward();
+    await _refreshNavigationState();
+  }
+
+  Future<void> _reloadCurrent() async {
+    final error = _state.error;
+    if (error != null) {
+      await _loadUrl(error.url);
+      return;
+    }
+    final controller = _webViewController;
+    if (controller != null) {
+      await controller.reload();
+      return;
+    }
+    if (_state.currentUrl.isNotEmpty && !_isHomeUrl(_state.currentUrl)) {
+      await _loadUrl(_state.currentUrl);
+    }
+  }
+
+  Future<void> _stopLoading() async {
+    _cancelLoadTimeout();
+    await _webViewController?.stopLoading();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _state = _state.copyWith(isLoading: false, progress: 0);
+    });
   }
 
   Future<void> _showSitePermissions() async {
@@ -689,11 +723,12 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
         useOnDownloadStart: true,
         supportMultipleWindows: true,
         mediaPlaybackRequiresUserGesture: false,
+        mixedContentMode: MixedContentMode.MIXED_CONTENT_ALWAYS_ALLOW,
         allowsInlineMediaPlayback: true,
         supportZoom: true,
         builtInZoomControls: true,
         displayZoomControls: false,
-        safeBrowsingEnabled: true,
+        safeBrowsingEnabled: false,
         transparentBackground: false,
         isInspectable: kDebugMode,
       ),
@@ -707,6 +742,9 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
           await controller.loadUrl(urlRequest: URLRequest(url: url));
         }
         return true;
+      },
+      onReceivedServerTrustAuthRequest: (_, __) async {
+        return _netfreePolicy.serverTrustResponse();
       },
       onLoadStart: (_, url) {
         final loadingUrl = url?.toString() ?? _state.currentUrl;
@@ -836,19 +874,126 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
               ),
             ),
           Positioned(
-            right: 12,
-            bottom: 12,
-            child: SafeArea(
-              child: FloatingActionButton.small(
-                key: const Key('browser-menu-button'),
-                heroTag: 'browser-menu',
-                tooltip: 'תפריט דפדפן',
-                onPressed: _showMenu,
-                child: const Icon(Icons.menu),
-              ),
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: _BrowserBottomBar(
+              state: _state,
+              onHome: _showHome,
+              onReload: _reloadCurrent,
+              onStop: _stopLoading,
+              onForward: _state.canGoForward ? _goForward : null,
+              onBack: _state.canGoBack ? _goBack : null,
+              onMenu: _showMenu,
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _BrowserBottomBar extends StatelessWidget {
+  const _BrowserBottomBar({
+    required this.state,
+    required this.onHome,
+    required this.onReload,
+    required this.onStop,
+    required this.onForward,
+    required this.onBack,
+    required this.onMenu,
+  });
+
+  final BrowserState state;
+  final VoidCallback onHome;
+  final VoidCallback onReload;
+  final VoidCallback onStop;
+  final VoidCallback? onForward;
+  final VoidCallback? onBack;
+  final VoidCallback onMenu;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: SafeArea(
+        top: false,
+        child: DecoratedBox(
+          key: const Key('browser-bottom-bar'),
+          decoration: BoxDecoration(
+            color: colorScheme.surface.withValues(alpha: 0.94),
+            border: Border(
+              top: BorderSide(color: colorScheme.outlineVariant),
+            ),
+          ),
+          child: SizedBox(
+            height: 44,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _BottomBarButton(
+                  key: const Key('browser-home-button'),
+                  tooltip: 'בית',
+                  icon: Icons.home_outlined,
+                  onPressed: onHome,
+                ),
+                _BottomBarButton(
+                  key: const Key('browser-reload-button'),
+                  tooltip: state.isLoading ? 'עצור' : 'רענן',
+                  icon: state.isLoading ? Icons.close : Icons.refresh,
+                  onPressed: state.isLoading ? onStop : onReload,
+                ),
+                _BottomBarButton(
+                  key: const Key('browser-forward-button'),
+                  tooltip: 'קדימה',
+                  icon: Icons.arrow_back,
+                  onPressed: onForward,
+                ),
+                _BottomBarButton(
+                  key: const Key('browser-back-button'),
+                  tooltip: 'חזרה',
+                  icon: Icons.arrow_forward,
+                  onPressed: onBack,
+                ),
+                _BottomBarButton(
+                  key: const Key('browser-menu-button'),
+                  tooltip: 'אפשרויות נוספות',
+                  icon: Icons.more_horiz,
+                  onPressed: onMenu,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BottomBarButton extends StatelessWidget {
+  const _BottomBarButton({
+    super.key,
+    required this.tooltip,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: tooltip,
+      icon: Icon(icon, size: 20),
+      onPressed: onPressed,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints.tightFor(width: 44, height: 40),
+      visualDensity: VisualDensity.compact,
+      style: IconButton.styleFrom(
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
       ),
     );
   }

@@ -9,11 +9,6 @@ class BrowserMenuSheet extends StatefulWidget {
     required this.state,
     required this.bookmarks,
     required this.onNavigate,
-    required this.onBack,
-    required this.onForward,
-    required this.onReload,
-    required this.onStop,
-    required this.onHome,
     required this.onAddBookmark,
     required this.onOpenBookmark,
     required this.onDeleteBookmark,
@@ -23,11 +18,6 @@ class BrowserMenuSheet extends StatefulWidget {
   final BrowserState state;
   final List<Bookmark> bookmarks;
   final ValueChanged<String> onNavigate;
-  final VoidCallback onBack;
-  final VoidCallback onForward;
-  final VoidCallback onReload;
-  final VoidCallback onStop;
-  final VoidCallback onHome;
   final VoidCallback onAddBookmark;
   final ValueChanged<Bookmark> onOpenBookmark;
   final ValueChanged<Bookmark> onDeleteBookmark;
@@ -39,6 +29,7 @@ class BrowserMenuSheet extends StatefulWidget {
 
 class _BrowserMenuSheetState extends State<BrowserMenuSheet> {
   late final TextEditingController _controller;
+  bool _showBookmarks = false;
 
   @override
   void initState() {
@@ -100,11 +91,22 @@ class _BrowserMenuSheetState extends State<BrowserMenuSheet> {
                   onSubmitted: _submit,
                   decoration: InputDecoration(
                     hintText: 'חיפוש או כתובת אתר',
-                    prefixIcon: const Icon(Icons.search),
-                    suffixIcon: IconButton(
-                      tooltip: 'פתח',
-                      icon: const Icon(Icons.arrow_forward),
-                      onPressed: () => _submit(_controller.text),
+                    suffixIcon: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          key: const Key('browser-address-clear-button'),
+                          tooltip: 'נקה',
+                          icon: const Icon(Icons.close),
+                          onPressed: _controller.clear,
+                        ),
+                        IconButton(
+                          key: const Key('browser-address-search-button'),
+                          tooltip: 'חפש',
+                          icon: const Icon(Icons.search),
+                          onPressed: () => _submit(_controller.text),
+                        ),
+                      ],
                     ),
                     isDense: true,
                     border: OutlineInputBorder(
@@ -113,98 +115,41 @@ class _BrowserMenuSheetState extends State<BrowserMenuSheet> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                _ActionGrid(
+                if (_showBookmarks && widget.bookmarks.isNotEmpty) ...[
+                  _BookmarksPanel(
+                    key: const Key('browser-bookmarks-panel'),
+                    bookmarks: widget.bookmarks,
+                    onOpenBookmark: widget.onOpenBookmark,
+                    onDeleteBookmark: widget.onDeleteBookmark,
+                    runAndClose: _run,
+                  ),
+                  const SizedBox(height: 10),
+                ],
+                _CompactActionRow(
+                  key: const Key('browser-menu-action-row'),
                   children: [
-                    _ActionButton(
-                      icon: Icons.home_outlined,
-                      label: 'בית',
-                      onPressed: _run(widget.onHome),
-                    ),
-                    _ActionButton(
-                      icon:
-                          widget.state.isLoading ? Icons.close : Icons.refresh,
-                      label: widget.state.isLoading ? 'עצור' : 'רענן',
-                      onPressed: _run(
-                        widget.state.isLoading
-                            ? widget.onStop
-                            : widget.onReload,
-                      ),
-                    ),
-                    _ActionButton(
-                      icon: Icons.arrow_back,
-                      label: 'קדימה',
-                      onPressed: widget.state.canGoForward
-                          ? _run(widget.onForward)
-                          : null,
-                    ),
-                    _ActionButton(
-                      icon: Icons.arrow_forward,
-                      label: 'חזרה',
-                      onPressed:
-                          widget.state.canGoBack ? _run(widget.onBack) : null,
-                    ),
                     _ActionButton(
                       icon: Icons.bookmark_add_outlined,
                       label: 'שמור',
                       onPressed: _run(widget.onAddBookmark),
                     ),
                     _ActionButton(
+                      key: const Key('browser-bookmarks-button'),
+                      icon: Icons.bookmarks_outlined,
+                      label: 'סימניות',
+                      onPressed: widget.bookmarks.isEmpty
+                          ? null
+                          : () => setState(() {
+                                _showBookmarks = !_showBookmarks;
+                              }),
+                    ),
+                    _ActionButton(
                       icon: Icons.verified_user_outlined,
                       label: 'הרשאות',
                       onPressed: _run(widget.onShowSitePermissions),
                     ),
-                    _ActionButton(
-                      icon: Icons.download_outlined,
-                      label: 'הורדות',
-                      onPressed: _run(() {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('הורדות מופיעות בהתראות Android'),
-                          ),
-                        );
-                      }),
-                    ),
                   ],
                 ),
-                if (widget.bookmarks.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: Text(
-                      'סימניות',
-                      style: Theme.of(context).textTheme.labelLarge,
-                    ),
-                  ),
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxHeight: 180),
-                    child: ListView.builder(
-                      shrinkWrap: true,
-                      itemCount: widget.bookmarks.length,
-                      itemBuilder: (context, index) {
-                        final bookmark = widget.bookmarks[index];
-                        return ListTile(
-                          dense: true,
-                          leading: const Icon(Icons.bookmark_outline),
-                          title: Text(
-                            bookmark.title,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          subtitle: Text(
-                            bookmark.url,
-                            textDirection: TextDirection.ltr,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          onTap: _run(() => widget.onOpenBookmark(bookmark)),
-                          trailing: IconButton(
-                            tooltip: 'מחק סימניה',
-                            icon: const Icon(Icons.delete_outline),
-                            onPressed: () => widget.onDeleteBookmark(bookmark),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ],
               ],
             ),
           ),
@@ -230,27 +175,30 @@ class _BrowserMenuSheetState extends State<BrowserMenuSheet> {
   }
 }
 
-class _ActionGrid extends StatelessWidget {
-  const _ActionGrid({required this.children});
+class _CompactActionRow extends StatelessWidget {
+  const _CompactActionRow({super.key, required this.children});
 
   final List<Widget> children;
 
   @override
   Widget build(BuildContext context) {
-    return GridView.count(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      crossAxisCount: 4,
-      mainAxisSpacing: 8,
-      crossAxisSpacing: 8,
-      childAspectRatio: 1.05,
-      children: children,
+    return Row(
+      children: [
+        for (final child in children)
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 3),
+              child: child,
+            ),
+          ),
+      ],
     );
   }
 }
 
 class _ActionButton extends StatelessWidget {
   const _ActionButton({
+    super.key,
     required this.icon,
     required this.label,
     required this.onPressed,
@@ -265,14 +213,16 @@ class _ActionButton extends StatelessWidget {
     return OutlinedButton(
       onPressed: onPressed,
       style: OutlinedButton.styleFrom(
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        minimumSize: const Size(0, 38),
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
-      child: Column(
+      child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 22),
-          const SizedBox(height: 4),
+          Icon(icon, size: 18),
+          const SizedBox(width: 4),
           Flexible(
             child: Text(
               label,
@@ -282,6 +232,61 @@ class _ActionButton extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _BookmarksPanel extends StatelessWidget {
+  const _BookmarksPanel({
+    super.key,
+    required this.bookmarks,
+    required this.onOpenBookmark,
+    required this.onDeleteBookmark,
+    required this.runAndClose,
+  });
+
+  final List<Bookmark> bookmarks;
+  final ValueChanged<Bookmark> onOpenBookmark;
+  final ValueChanged<Bookmark> onDeleteBookmark;
+  final VoidCallback Function(VoidCallback callback) runAndClose;
+
+  @override
+  Widget build(BuildContext context) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxHeight: 180),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: ListView.builder(
+          padding: EdgeInsets.zero,
+          shrinkWrap: true,
+          itemCount: bookmarks.length,
+          itemBuilder: (context, index) {
+            final bookmark = bookmarks[index];
+            return ListTile(
+              dense: true,
+              leading: const Icon(Icons.bookmark_outline),
+              title: Text(
+                bookmark.title,
+                overflow: TextOverflow.ellipsis,
+              ),
+              subtitle: Text(
+                bookmark.url,
+                textDirection: TextDirection.ltr,
+                overflow: TextOverflow.ellipsis,
+              ),
+              onTap: runAndClose(() => onOpenBookmark(bookmark)),
+              trailing: IconButton(
+                tooltip: 'מחק סימניה',
+                icon: const Icon(Icons.delete_outline),
+                onPressed: () => onDeleteBookmark(bookmark),
+              ),
+            );
+          },
+        ),
       ),
     );
   }

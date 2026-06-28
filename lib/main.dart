@@ -4,6 +4,7 @@ import 'package:flutter_downloader/flutter_downloader.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
+import 'browser/services/netfree_browser_policy.dart';
 import 'browser/widgets/compact_browser_page.dart';
 
 Future<void> main() async {
@@ -11,7 +12,7 @@ Future<void> main() async {
 
   await FlutterDownloader.initialize(
     debug: kDebugMode,
-    ignoreSsl: false,
+    ignoreSsl: const NetfreeBrowserPolicy().ignoreDownloadSsl,
   );
 
   await InAppWebViewController.setWebContentsDebuggingEnabled(kDebugMode);

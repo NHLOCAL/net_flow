@@ -34,7 +34,7 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
-  testWidgets('compact browser renders native home and menu button', (
+  testWidgets('compact browser renders native home and bottom navigation', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -49,10 +49,44 @@ void main() {
 
     expect(find.byKey(const Key('browser-home-search-field')), findsOneWidget);
     expect(find.byKey(const Key('fake-webview')), findsNothing);
+    expect(find.byKey(const Key('browser-bottom-bar')), findsOneWidget);
     expect(find.byKey(const Key('browser-menu-button')), findsOneWidget);
   });
 
-  testWidgets('menu opens a compact address sheet', (tester) async {
+  testWidgets('bottom navigation keeps core browser controls visible', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CompactBrowserPage(
+          androidChannel: FakeAndroidBrowserChannel(),
+          webViewOverride: const SizedBox(key: Key('fake-webview')),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('browser-home-button')), findsOneWidget);
+    expect(find.byKey(const Key('browser-reload-button')), findsOneWidget);
+    expect(find.byKey(const Key('browser-forward-button')), findsOneWidget);
+    expect(find.byKey(const Key('browser-back-button')), findsOneWidget);
+    expect(find.byKey(const Key('browser-menu-button')), findsOneWidget);
+
+    final home = tester.getTopLeft(find.byKey(const Key('browser-home-button')));
+    final reload =
+        tester.getTopLeft(find.byKey(const Key('browser-reload-button')));
+    final forward =
+        tester.getTopLeft(find.byKey(const Key('browser-forward-button')));
+    final back = tester.getTopLeft(find.byKey(const Key('browser-back-button')));
+    final menu = tester.getTopLeft(find.byKey(const Key('browser-menu-button')));
+
+    expect(home.dx, greaterThan(reload.dx));
+    expect(reload.dx, greaterThan(forward.dx));
+    expect(forward.dx, greaterThan(back.dx));
+    expect(back.dx, greaterThan(menu.dx));
+  });
+
+  testWidgets('more button opens a compact address sheet', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         home: CompactBrowserPage(
@@ -68,7 +102,8 @@ void main() {
 
     expect(find.byKey(const Key('browser-address-field')), findsOneWidget);
     expect(find.text('הרשאות'), findsOneWidget);
-    expect(find.text('הורדות'), findsOneWidget);
+    expect(find.text('סימניות'), findsOneWidget);
+    expect(find.text('הורדות'), findsNothing);
   });
 
   testWidgets('home search opens the browser surface', (tester) async {
@@ -129,9 +164,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const Key('browser-menu-button')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('בית'));
+    await tester.tap(find.byKey(const Key('browser-home-button')));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('browser-home-search-field')), findsOneWidget);

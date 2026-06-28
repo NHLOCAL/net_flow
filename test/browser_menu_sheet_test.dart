@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:net_flow/browser/models/bookmark.dart';
 import 'package:net_flow/browser/models/browser_state.dart';
 import 'package:net_flow/browser/widgets/browser_menu_sheet.dart';
 
@@ -22,11 +23,6 @@ void main() {
                       state: const BrowserState(),
                       bookmarks: const [],
                       onNavigate: (value) => navigatedTo = value,
-                      onBack: () {},
-                      onForward: () {},
-                      onReload: () {},
-                      onStop: () {},
-                      onHome: () {},
                       onAddBookmark: () {},
                       onOpenBookmark: (_) {},
                       onDeleteBookmark: (_) {},
@@ -55,21 +51,14 @@ void main() {
     expect(find.byKey(const Key('browser-address-field')), findsNothing);
   });
 
-  testWidgets('back and forward controls are disabled when unavailable', (
-    tester,
-  ) async {
+  testWidgets('clear button empties the address field', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: BrowserMenuSheet(
-            state: const BrowserState(canGoBack: false, canGoForward: false),
+            state: const BrowserState(currentUrl: 'https://example.com'),
             bookmarks: const [],
             onNavigate: (_) {},
-            onBack: () {},
-            onForward: () {},
-            onReload: () {},
-            onStop: () {},
-            onHome: () {},
             onAddBookmark: () {},
             onOpenBookmark: (_) {},
             onDeleteBookmark: (_) {},
@@ -79,24 +68,57 @@ void main() {
       ),
     );
 
-    final back = tester.widget<OutlinedButton>(
-      find.ancestor(
-        of: find.text('חזרה'),
-        matching: find.byType(OutlinedButton),
-      ),
+    expect(
+      tester.widget<TextField>(
+        find.byKey(const Key('browser-address-field')),
+      ).controller?.text,
+      'https://example.com',
     );
-    final forward = tester.widget<OutlinedButton>(
-      find.ancestor(
-        of: find.text('קדימה'),
-        matching: find.byType(OutlinedButton),
-      ),
-    );
+    await tester.tap(find.byKey(const Key('browser-address-clear-button')));
+    await tester.pump();
 
-    expect(back.onPressed, isNull);
-    expect(forward.onPressed, isNull);
+    expect(
+      tester.widget<TextField>(
+        find.byKey(const Key('browser-address-field')),
+      ).controller?.text,
+      isEmpty,
+    );
   });
 
-  testWidgets('main menu does not show a duplicate browser action', (
+  testWidgets('search icon submits the address field without an arrow button', (
+    tester,
+  ) async {
+    String? navigatedTo;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: BrowserMenuSheet(
+            state: const BrowserState(),
+            bookmarks: const [],
+            onNavigate: (value) => navigatedTo = value,
+            onAddBookmark: () {},
+            onOpenBookmark: (_) {},
+            onDeleteBookmark: (_) {},
+            onShowSitePermissions: () {},
+          ),
+        ),
+      ),
+    );
+
+    await tester.enterText(
+      find.byKey(const Key('browser-address-field')),
+      'netfree.link',
+    );
+    await tester.tap(find.byKey(const Key('browser-address-search-button')));
+    await tester.pumpAndSettle();
+
+    expect(navigatedTo, 'netfree.link');
+    expect(find.byTooltip('פתח'), findsNothing);
+    expect(find.byIcon(Icons.arrow_forward), findsNothing);
+  });
+
+  testWidgets('more menu does not duplicate bottom navigation actions', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -106,11 +128,6 @@ void main() {
             state: const BrowserState(),
             bookmarks: const [],
             onNavigate: (_) {},
-            onBack: () {},
-            onForward: () {},
-            onReload: () {},
-            onStop: () {},
-            onHome: () {},
             onAddBookmark: () {},
             onOpenBookmark: (_) {},
             onDeleteBookmark: (_) {},
@@ -120,23 +137,25 @@ void main() {
       ),
     );
 
-    expect(find.text('בית'), findsOneWidget);
+    expect(find.text('בית'), findsNothing);
+    expect(find.text('רענן'), findsNothing);
+    expect(find.text('קדימה'), findsNothing);
+    expect(find.text('חזרה'), findsNothing);
     expect(find.text('דפדפן'), findsNothing);
   });
 
-  testWidgets('action buttons are ordered for RTL scanning', (tester) async {
+  testWidgets('bookmarks open from an action button above the action row', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: BrowserMenuSheet(
-            state: const BrowserState(canGoBack: true, canGoForward: true),
-            bookmarks: const [],
+            state: const BrowserState(),
+            bookmarks: const [
+              Bookmark(title: 'Netfree', url: 'https://netfree.link'),
+            ],
             onNavigate: (_) {},
-            onBack: () {},
-            onForward: () {},
-            onReload: () {},
-            onStop: () {},
-            onHome: () {},
             onAddBookmark: () {},
             onOpenBookmark: (_) {},
             onDeleteBookmark: (_) {},
@@ -146,13 +165,20 @@ void main() {
       ),
     );
 
-    final home = tester.getTopLeft(find.text('בית'));
-    final reload = tester.getTopLeft(find.text('רענן'));
-    final forward = tester.getTopLeft(find.text('קדימה'));
-    final back = tester.getTopLeft(find.text('חזרה'));
+    expect(find.text('הורדות'), findsNothing);
+    expect(find.text('Netfree'), findsNothing);
+    expect(find.byKey(const Key('browser-bookmarks-button')), findsOneWidget);
 
-    expect(home.dx, greaterThan(reload.dx));
-    expect(reload.dx, greaterThan(forward.dx));
-    expect(forward.dx, greaterThan(back.dx));
+    await tester.tap(find.byKey(const Key('browser-bookmarks-button')));
+    await tester.pump();
+
+    expect(find.text('Netfree'), findsOneWidget);
+    final panelTop = tester.getTopLeft(
+      find.byKey(const Key('browser-bookmarks-panel')),
+    );
+    final actionRowTop = tester.getTopLeft(
+      find.byKey(const Key('browser-menu-action-row')),
+    );
+    expect(panelTop.dy, lessThan(actionRowTop.dy));
   });
 }
