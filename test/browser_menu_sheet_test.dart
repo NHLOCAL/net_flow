@@ -123,4 +123,36 @@ void main() {
     expect(find.text('בית'), findsOneWidget);
     expect(find.text('דפדפן'), findsNothing);
   });
+
+  testWidgets('action buttons are ordered for RTL scanning', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: BrowserMenuSheet(
+            state: const BrowserState(canGoBack: true, canGoForward: true),
+            bookmarks: const [],
+            onNavigate: (_) {},
+            onBack: () {},
+            onForward: () {},
+            onReload: () {},
+            onStop: () {},
+            onHome: () {},
+            onAddBookmark: () {},
+            onOpenBookmark: (_) {},
+            onDeleteBookmark: (_) {},
+            onShowSitePermissions: () {},
+          ),
+        ),
+      ),
+    );
+
+    final home = tester.getTopLeft(find.text('בית'));
+    final reload = tester.getTopLeft(find.text('רענן'));
+    final forward = tester.getTopLeft(find.text('קדימה'));
+    final back = tester.getTopLeft(find.text('חזרה'));
+
+    expect(home.dx, greaterThan(reload.dx));
+    expect(reload.dx, greaterThan(forward.dx));
+    expect(forward.dx, greaterThan(back.dx));
+  });
 }

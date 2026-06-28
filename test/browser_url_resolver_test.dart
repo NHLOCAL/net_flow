@@ -16,6 +16,28 @@ void main() {
       expect(resolver.resolve('netfree.link'), 'https://netfree.link');
     });
 
+    test('keeps paths on plain domains', () {
+      expect(
+        resolver.resolve('example.com/path?q=1'),
+        'https://example.com/path?q=1',
+      );
+    });
+
+    test('turns free text with punctuation into a Google search URL', () {
+      expect(
+        resolver.resolve('hello.world test'),
+        'https://www.google.com/search?q=hello.world%20test',
+      );
+      expect(
+        resolver.resolve('example'),
+        'https://www.google.com/search?q=example',
+      );
+      expect(
+        resolver.resolve('bad_domain.com'),
+        'https://www.google.com/search?q=bad_domain.com',
+      );
+    });
+
     test('turns Hebrew text into a Google search URL', () {
       expect(
         resolver.resolve('בדיקת נטפרי'),

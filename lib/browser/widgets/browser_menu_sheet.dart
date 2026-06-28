@@ -57,6 +57,18 @@ class _BrowserMenuSheetState extends State<BrowserMenuSheet> {
   }
 
   @override
+  void didUpdateWidget(covariant BrowserMenuSheet oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final oldText =
+        _isHomeUrl(oldWidget.state.currentUrl) ? '' : oldWidget.state.currentUrl;
+    if (oldWidget.state.currentUrl != widget.state.currentUrl &&
+        _controller.text == oldText) {
+      _controller.text =
+          _isHomeUrl(widget.state.currentUrl) ? '' : widget.state.currentUrl;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
     return Directionality(
@@ -104,17 +116,9 @@ class _BrowserMenuSheetState extends State<BrowserMenuSheet> {
                 _ActionGrid(
                   children: [
                     _ActionButton(
-                      icon: Icons.arrow_forward,
-                      label: 'חזרה',
-                      onPressed:
-                          widget.state.canGoBack ? _run(widget.onBack) : null,
-                    ),
-                    _ActionButton(
-                      icon: Icons.arrow_back,
-                      label: 'קדימה',
-                      onPressed: widget.state.canGoForward
-                          ? _run(widget.onForward)
-                          : null,
+                      icon: Icons.home_outlined,
+                      label: 'בית',
+                      onPressed: _run(widget.onHome),
                     ),
                     _ActionButton(
                       icon:
@@ -127,9 +131,17 @@ class _BrowserMenuSheetState extends State<BrowserMenuSheet> {
                       ),
                     ),
                     _ActionButton(
-                      icon: Icons.home_outlined,
-                      label: 'בית',
-                      onPressed: _run(widget.onHome),
+                      icon: Icons.arrow_back,
+                      label: 'קדימה',
+                      onPressed: widget.state.canGoForward
+                          ? _run(widget.onForward)
+                          : null,
+                    ),
+                    _ActionButton(
+                      icon: Icons.arrow_forward,
+                      label: 'חזרה',
+                      onPressed:
+                          widget.state.canGoBack ? _run(widget.onBack) : null,
                     ),
                     _ActionButton(
                       icon: Icons.bookmark_add_outlined,

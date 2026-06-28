@@ -28,25 +28,26 @@ class CompactBrowserPage extends StatefulWidget {
     this.webViewOverride,
     this.androidChannel,
     this.downloadService = const DownloadService(),
+    this.initialState = const BrowserState(),
   });
 
   final Widget? webViewOverride;
   final AndroidBrowserChannel? androidChannel;
   final DownloadService downloadService;
+  final BrowserState initialState;
 
   @override
   State<CompactBrowserPage> createState() => _CompactBrowserPageState();
 }
 
 class _CompactBrowserPageState extends State<CompactBrowserPage> {
-  final BrowserUrlResolver _resolver = const BrowserUrlResolver();
   late final AndroidBrowserChannel _androidChannel;
 
   InAppWebViewController? _webViewController;
   BookmarkStore? _bookmarkStore;
   SitePermissionStore? _permissionStore;
 
-  BrowserState _state = const BrowserState();
+  late BrowserState _state;
   BrowserSettings _settings = const BrowserSettings.defaults();
   List<Bookmark> _bookmarks = <Bookmark>[];
   String? _pendingInitialUrl;
@@ -56,6 +57,7 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
   @override
   void initState() {
     super.initState();
+    _state = widget.initialState;
     _androidChannel = widget.androidChannel ?? AndroidBrowserChannel();
     _androidChannel.setOpenUrlHandler(_openIncomingUrl);
     unawaited(_initialize());
@@ -104,35 +106,32 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
   }
 
   Future<void> _loadUrl(String input) async {
-    final url = _resolver.resolve(input);
+    final url = BrowserUrlResolver(settings: _settings).resolve(input);
     if (_isHomeUrl(url)) {
       await _showHome();
       return;
     }
 
-    final controller = _webViewController;
-    if (controller == null) {
-      setState(() {
-        _pendingInitialUrl = url;
-        _webViewSeed++;
-        _state = _state.copyWith(
-          currentUrl: url,
-          isLoading: true,
-          progress: 0,
-          clearError: true,
-        );
-      });
-      _startLoadTimeout(url);
+    await _detachWebView();
+    if (!mounted) {
       return;
     }
-
+    setState(() {
+      _pendingInitialUrl = url;
+      _webViewSeed++;
+      _state = _state.copyWith(
+        currentUrl: url,
+        isLoading: true,
+        progress: 0,
+        clearError: true,
+      );
+    });
     _startLoadTimeout(url);
-    await controller.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
   }
 
   Future<void> _showHome() async {
-    await _webViewController?.stopLoading();
-    _webViewController = null;
+    _cancelLoadTimeout();
+    await _detachWebView();
     if (!mounted) {
       return;
     }
@@ -149,6 +148,20 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
         clearError: true,
       );
     });
+  }
+
+  Future<void> _detachWebView() async {
+    final controller = _webViewController;
+    _webViewController = null;
+    if (controller == null) {
+      return;
+    }
+
+    try {
+      await controller.stopLoading();
+    } catch (_) {
+      // The controller can already be detached when an error view replaced it.
+    }
   }
 
   void _startLoadTimeout(String url) {
@@ -189,11 +202,6 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
 
     final currentUrl = (await controller.getUrl())?.toString();
     if (!mounted || currentUrl != url) {
-      return;
-    }
-
-    final title = (await controller.getTitle())?.trim() ?? '';
-    if (title.isNotEmpty && title != 'Net Flow') {
       return;
     }
 
@@ -269,7 +277,7 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
     }
 
     final uri = Uri.tryParse(url.toString());
-    if (uri != null && _resolver.isExternalScheme(uri)) {
+    if (uri != null && const BrowserUrlResolver().isExternalScheme(uri)) {
       await _openExternal(url.toString());
       return NavigationActionPolicy.CANCEL;
     }
@@ -543,7 +551,7 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
 
   Future<void> _addBookmark() async {
     final url = _state.currentUrl;
-    if (url.isEmpty || url == 'about:blank') {
+    if (url.isEmpty || _isHomeUrl(url)) {
       return;
     }
 
@@ -691,10 +699,6 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
       ),
       onWebViewCreated: (controller) async {
         _webViewController = controller;
-        final pending = _pendingInitialUrl;
-        if (pending != null && pending.isNotEmpty && !_isHomeUrl(pending)) {
-          await _loadUrl(pending);
-        }
       },
       shouldOverrideUrlLoading: (_, action) => _handleNavigation(action),
       onCreateWindow: (controller, action) async {
@@ -708,6 +712,7 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
         final loadingUrl = url?.toString() ?? _state.currentUrl;
         _startLoadTimeout(loadingUrl);
         setState(() {
+          _pendingInitialUrl = null;
           _state = _state.copyWith(
             currentUrl: loadingUrl,
             isLoading: true,
@@ -730,6 +735,7 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
         _cancelLoadTimeout();
         final stoppedUrl = url?.toString() ?? _state.currentUrl;
         setState(() {
+          _pendingInitialUrl = null;
           _state = _state.copyWith(
             currentUrl: stoppedUrl,
             isLoading: false,
