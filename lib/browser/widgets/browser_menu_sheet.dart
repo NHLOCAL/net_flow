@@ -38,9 +38,7 @@ class _BrowserMenuSheetState extends State<BrowserMenuSheet> {
   void initState() {
     super.initState();
     _controller = TextEditingController(
-      text: _isHomeUrl(widget.state.currentUrl)
-          ? ''
-          : widget.state.currentUrl,
+      text: _isHomeUrl(widget.state.currentUrl) ? '' : widget.state.currentUrl,
     );
     _textDirection = BrowserTextDirection.resolve(_controller.text);
     _controller.addListener(_syncTextDirection);
@@ -65,8 +63,9 @@ class _BrowserMenuSheetState extends State<BrowserMenuSheet> {
   @override
   void didUpdateWidget(covariant BrowserMenuSheet oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final oldText =
-        _isHomeUrl(oldWidget.state.currentUrl) ? '' : oldWidget.state.currentUrl;
+    final oldText = _isHomeUrl(oldWidget.state.currentUrl)
+        ? ''
+        : oldWidget.state.currentUrl;
     if (oldWidget.state.currentUrl != widget.state.currentUrl &&
         _controller.text == oldText) {
       _controller.text =
@@ -215,16 +214,44 @@ class _CompactActionRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        for (final child in children)
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 3),
-              child: child,
-            ),
+    final rowChildren = <Widget>[];
+    for (var index = 0; index < children.length; index += 1) {
+      if (index > 0) {
+        rowChildren.add(_ActionSeparator(index: index - 1));
+      }
+      rowChildren.add(
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 3),
+            child: children[index],
           ),
-      ],
+        ),
+      );
+    }
+
+    return Row(
+      children: rowChildren,
+    );
+  }
+}
+
+class _ActionSeparator extends StatelessWidget {
+  const _ActionSeparator({required this.index});
+
+  final int index;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return SizedBox(
+      key: Key('browser-menu-action-separator-$index'),
+      width: 1,
+      height: 30,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.9),
+        ),
+      ),
     );
   }
 }
@@ -243,12 +270,16 @@ class _ActionButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return OutlinedButton(
+    final colorScheme = Theme.of(context).colorScheme;
+    return TextButton(
       onPressed: onPressed,
-      style: OutlinedButton.styleFrom(
-        minimumSize: const Size(0, 38),
+      style: TextButton.styleFrom(
+        foregroundColor: colorScheme.onSurface,
+        minimumSize: const Size(0, 40),
         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(7)),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        visualDensity: VisualDensity.compact,
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -290,7 +321,8 @@ class _BookmarksPanel extends StatelessWidget {
       constraints: const BoxConstraints(maxHeight: 180),
       child: DecoratedBox(
         decoration: BoxDecoration(
-          border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+          border:
+              Border.all(color: Theme.of(context).colorScheme.outlineVariant),
           borderRadius: BorderRadius.circular(10),
         ),
         child: ListView.builder(

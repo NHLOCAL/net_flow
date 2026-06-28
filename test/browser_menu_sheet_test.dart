@@ -69,18 +69,24 @@ void main() {
     );
 
     expect(
-      tester.widget<TextField>(
-        find.byKey(const Key('browser-address-field')),
-      ).controller?.text,
+      tester
+          .widget<TextField>(
+            find.byKey(const Key('browser-address-field')),
+          )
+          .controller
+          ?.text,
       'https://example.com',
     );
     await tester.tap(find.byKey(const Key('browser-address-clear-button')));
     await tester.pump();
 
     expect(
-      tester.widget<TextField>(
-        find.byKey(const Key('browser-address-field')),
-      ).controller?.text,
+      tester
+          .widget<TextField>(
+            find.byKey(const Key('browser-address-field')),
+          )
+          .controller
+          ?.text,
       isEmpty,
     );
   });
@@ -184,6 +190,15 @@ void main() {
     expect(find.text('קדימה'), findsNothing);
     expect(find.text('חזרה'), findsNothing);
     expect(find.text('דפדפן'), findsNothing);
+    expect(find.widgetWithText(TextButton, 'שמור'), findsOneWidget);
+    expect(find.widgetWithText(TextButton, 'סימניות'), findsOneWidget);
+    expect(find.widgetWithText(TextButton, 'הרשאות'), findsOneWidget);
+    for (var index = 0; index < 2; index += 1) {
+      expect(
+        find.byKey(Key('browser-menu-action-separator-$index')),
+        findsOneWidget,
+      );
+    }
   });
 
   testWidgets('bookmarks open from an action button above the action row', (
@@ -224,7 +239,8 @@ void main() {
     expect(panelTop.dy, lessThan(actionRowTop.dy));
   });
 
-  testWidgets('deleting a bookmark updates the open bookmarks panel immediately', (
+  testWidgets(
+      'deleting a bookmark updates the open bookmarks panel immediately', (
     tester,
   ) async {
     Bookmark? deletedBookmark;

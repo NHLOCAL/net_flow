@@ -71,14 +71,23 @@ void main() {
     expect(find.byKey(const Key('browser-forward-button')), findsOneWidget);
     expect(find.byKey(const Key('browser-back-button')), findsOneWidget);
     expect(find.byKey(const Key('browser-menu-button')), findsOneWidget);
+    for (var index = 0; index < 4; index += 1) {
+      expect(
+        find.byKey(Key('browser-bottom-bar-separator-$index')),
+        findsOneWidget,
+      );
+    }
 
-    final home = tester.getTopLeft(find.byKey(const Key('browser-home-button')));
+    final home =
+        tester.getTopLeft(find.byKey(const Key('browser-home-button')));
     final reload =
         tester.getTopLeft(find.byKey(const Key('browser-reload-button')));
     final forward =
         tester.getTopLeft(find.byKey(const Key('browser-forward-button')));
-    final back = tester.getTopLeft(find.byKey(const Key('browser-back-button')));
-    final menu = tester.getTopLeft(find.byKey(const Key('browser-menu-button')));
+    final back =
+        tester.getTopLeft(find.byKey(const Key('browser-back-button')));
+    final menu =
+        tester.getTopLeft(find.byKey(const Key('browser-menu-button')));
 
     expect(home.dx, greaterThan(reload.dx));
     expect(reload.dx, greaterThan(forward.dx));

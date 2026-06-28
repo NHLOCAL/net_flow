@@ -928,42 +928,78 @@ class _BrowserBottomBar extends StatelessWidget {
             ),
           ),
           child: SizedBox(
-            height: 44,
+            height: 48,
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                _BottomBarButton(
-                  key: const Key('browser-home-button'),
-                  tooltip: 'בית',
-                  icon: Icons.home_outlined,
-                  onPressed: onHome,
+                Expanded(
+                  child: _BottomBarButton(
+                    key: const Key('browser-home-button'),
+                    tooltip: 'בית',
+                    icon: Icons.home_outlined,
+                    onPressed: onHome,
+                  ),
                 ),
-                _BottomBarButton(
-                  key: const Key('browser-reload-button'),
-                  tooltip: state.isLoading ? 'עצור' : 'רענן',
-                  icon: state.isLoading ? Icons.close : Icons.refresh,
-                  onPressed: state.isLoading ? onStop : onReload,
+                const _BottomBarSeparator(index: 0),
+                Expanded(
+                  child: _BottomBarButton(
+                    key: const Key('browser-reload-button'),
+                    tooltip: state.isLoading ? 'עצור' : 'רענן',
+                    icon: state.isLoading ? Icons.close : Icons.refresh,
+                    onPressed: state.isLoading ? onStop : onReload,
+                  ),
                 ),
-                _BottomBarButton(
-                  key: const Key('browser-forward-button'),
-                  tooltip: 'קדימה',
-                  icon: Icons.arrow_back,
-                  onPressed: onForward,
+                const _BottomBarSeparator(index: 1),
+                Expanded(
+                  child: _BottomBarButton(
+                    key: const Key('browser-forward-button'),
+                    tooltip: 'קדימה',
+                    icon: Icons.arrow_back,
+                    onPressed: onForward,
+                  ),
                 ),
-                _BottomBarButton(
-                  key: const Key('browser-back-button'),
-                  tooltip: 'חזרה',
-                  icon: Icons.arrow_forward,
-                  onPressed: onBack,
+                const _BottomBarSeparator(index: 2),
+                Expanded(
+                  child: _BottomBarButton(
+                    key: const Key('browser-back-button'),
+                    tooltip: 'חזרה',
+                    icon: Icons.arrow_forward,
+                    onPressed: onBack,
+                  ),
                 ),
-                _BottomBarButton(
-                  key: const Key('browser-menu-button'),
-                  tooltip: 'אפשרויות נוספות',
-                  icon: Icons.more_horiz,
-                  onPressed: onMenu,
+                const _BottomBarSeparator(index: 3),
+                Expanded(
+                  child: _BottomBarButton(
+                    key: const Key('browser-menu-button'),
+                    tooltip: 'אפשרויות נוספות',
+                    icon: Icons.more_horiz,
+                    onPressed: onMenu,
+                  ),
                 ),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BottomBarSeparator extends StatelessWidget {
+  const _BottomBarSeparator({required this.index});
+
+  final int index;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Center(
+      child: SizedBox(
+        key: Key('browser-bottom-bar-separator-$index'),
+        width: 1,
+        height: 30,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: colorScheme.outlineVariant.withValues(alpha: 0.88),
           ),
         ),
       ),
@@ -985,15 +1021,26 @@ class _BottomBarButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return IconButton(
-      tooltip: tooltip,
-      icon: Icon(icon, size: 20),
-      onPressed: onPressed,
-      padding: EdgeInsets.zero,
-      constraints: const BoxConstraints.tightFor(width: 44, height: 40),
-      visualDensity: VisualDensity.compact,
-      style: IconButton.styleFrom(
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    final colorScheme = Theme.of(context).colorScheme;
+    final isEnabled = onPressed != null;
+    final foreground = isEnabled
+        ? colorScheme.onSurface
+        : colorScheme.onSurfaceVariant.withValues(alpha: 0.38);
+
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(7),
+          child: SizedBox(
+            height: 48,
+            child: Center(
+              child: Icon(icon, size: 21, color: foreground),
+            ),
+          ),
+        ),
       ),
     );
   }
