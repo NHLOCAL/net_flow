@@ -181,4 +181,41 @@ void main() {
     );
     expect(panelTop.dy, lessThan(actionRowTop.dy));
   });
+
+  testWidgets('deleting a bookmark updates the open bookmarks panel immediately', (
+    tester,
+  ) async {
+    Bookmark? deletedBookmark;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: BrowserMenuSheet(
+            state: const BrowserState(),
+            bookmarks: const [
+              Bookmark(title: 'Netfree', url: 'https://netfree.link'),
+              Bookmark(title: 'Example', url: 'https://example.com'),
+            ],
+            onNavigate: (_) {},
+            onAddBookmark: () {},
+            onOpenBookmark: (_) {},
+            onDeleteBookmark: (bookmark) => deletedBookmark = bookmark,
+            onShowSitePermissions: () {},
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('browser-bookmarks-button')));
+    await tester.pump();
+    expect(find.text('Netfree'), findsOneWidget);
+    expect(find.text('Example'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('מחק סימניה').first);
+    await tester.pump();
+
+    expect(deletedBookmark?.title, 'Netfree');
+    expect(find.text('Netfree'), findsNothing);
+    expect(find.text('Example'), findsOneWidget);
+  });
 }

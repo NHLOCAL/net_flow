@@ -29,6 +29,7 @@ class BrowserMenuSheet extends StatefulWidget {
 
 class _BrowserMenuSheetState extends State<BrowserMenuSheet> {
   late final TextEditingController _controller;
+  late List<Bookmark> _visibleBookmarks;
   bool _showBookmarks = false;
 
   @override
@@ -39,6 +40,7 @@ class _BrowserMenuSheetState extends State<BrowserMenuSheet> {
           ? ''
           : widget.state.currentUrl,
     );
+    _visibleBookmarks = List<Bookmark>.of(widget.bookmarks);
   }
 
   @override
@@ -56,6 +58,12 @@ class _BrowserMenuSheetState extends State<BrowserMenuSheet> {
         _controller.text == oldText) {
       _controller.text =
           _isHomeUrl(widget.state.currentUrl) ? '' : widget.state.currentUrl;
+    }
+    if (oldWidget.bookmarks != widget.bookmarks) {
+      _visibleBookmarks = List<Bookmark>.of(widget.bookmarks);
+      if (_visibleBookmarks.isEmpty) {
+        _showBookmarks = false;
+      }
     }
   }
 
@@ -115,12 +123,12 @@ class _BrowserMenuSheetState extends State<BrowserMenuSheet> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                if (_showBookmarks && widget.bookmarks.isNotEmpty) ...[
+                if (_showBookmarks && _visibleBookmarks.isNotEmpty) ...[
                   _BookmarksPanel(
                     key: const Key('browser-bookmarks-panel'),
-                    bookmarks: widget.bookmarks,
+                    bookmarks: _visibleBookmarks,
                     onOpenBookmark: widget.onOpenBookmark,
-                    onDeleteBookmark: widget.onDeleteBookmark,
+                    onDeleteBookmark: _deleteBookmark,
                     runAndClose: _run,
                   ),
                   const SizedBox(height: 10),
@@ -137,7 +145,7 @@ class _BrowserMenuSheetState extends State<BrowserMenuSheet> {
                       key: const Key('browser-bookmarks-button'),
                       icon: Icons.bookmarks_outlined,
                       label: 'סימניות',
-                      onPressed: widget.bookmarks.isEmpty
+                      onPressed: _visibleBookmarks.isEmpty
                           ? null
                           : () => setState(() {
                                 _showBookmarks = !_showBookmarks;
@@ -168,6 +176,17 @@ class _BrowserMenuSheetState extends State<BrowserMenuSheet> {
       Navigator.of(context).pop();
       callback();
     };
+  }
+
+  void _deleteBookmark(Bookmark bookmark) {
+    setState(() {
+      _visibleBookmarks =
+          _visibleBookmarks.where((item) => item.url != bookmark.url).toList();
+      if (_visibleBookmarks.isEmpty) {
+        _showBookmarks = false;
+      }
+    });
+    widget.onDeleteBookmark(bookmark);
   }
 
   bool _isHomeUrl(String url) {
