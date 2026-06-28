@@ -21,4 +21,20 @@ void main() {
     expect(error.kind, BrowserErrorKind.ssl);
     expect(error.message, contains('תעודה'));
   });
+
+  test('maps stalled loads to network guidance', () {
+    final error = BrowserError.timeout(url: 'https://example.com');
+
+    expect(error.kind, BrowserErrorKind.load);
+    expect(error.title, contains('לא הסתיימה'));
+    expect(error.message, contains('רשת'));
+  });
+
+  test('maps blank loads to network or filtering guidance', () {
+    final error = BrowserError.blank(url: 'https://example.com');
+
+    expect(error.kind, BrowserErrorKind.load);
+    expect(error.title, contains('ריק'));
+    expect(error.message, contains('נטפרי'));
+  });
 }

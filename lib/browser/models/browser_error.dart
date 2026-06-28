@@ -75,4 +75,28 @@ class BrowserError {
       message: 'אין אפליקציה במכשיר שיכולה לפתוח את הקישור הזה.',
     );
   }
+
+  factory BrowserError.timeout({
+    required String url,
+  }) {
+    return BrowserError(
+      url: url,
+      kind: BrowserErrorKind.load,
+      title: 'הטעינה לא הסתיימה',
+      message:
+          'נראה שהדף לא מגיב או שיש בעיית רשת. אם אתה משתמש בנטפרי, ייתכן שנדרשת תעודה או בדיקת סינון.',
+    );
+  }
+
+  factory BrowserError.blank({
+    required String url,
+  }) {
+    return BrowserError(
+      url: url,
+      kind: BrowserErrorKind.load,
+      title: 'הדף נטען ריק',
+      message:
+          'הכתובת התקבלה, אבל לא הגיע תוכן להצגה. בדוק חיבור רשת, סינון נטפרי או תעודת SSL ונסה שוב.',
+    );
+  }
 }

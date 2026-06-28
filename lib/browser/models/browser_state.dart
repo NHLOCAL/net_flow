@@ -2,7 +2,7 @@ import 'browser_error.dart';
 
 class BrowserState {
   const BrowserState({
-    this.currentUrl = 'about:blank',
+    this.currentUrl = 'netflow://home',
     this.title = 'Net Flow',
     this.progress = 0,
     this.isLoading = false,

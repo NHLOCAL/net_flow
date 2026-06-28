@@ -21,8 +21,6 @@ void main() {
                     builder: (_) => BrowserMenuSheet(
                       state: const BrowserState(),
                       bookmarks: const [],
-                      defaultBrowserAvailable: false,
-                      defaultBrowserHeld: false,
                       onNavigate: (value) => navigatedTo = value,
                       onBack: () {},
                       onForward: () {},
@@ -33,7 +31,6 @@ void main() {
                       onOpenBookmark: (_) {},
                       onDeleteBookmark: (_) {},
                       onShowSitePermissions: () {},
-                      onRequestDefaultBrowser: () {},
                     ),
                   );
                 },
@@ -67,8 +64,6 @@ void main() {
           body: BrowserMenuSheet(
             state: const BrowserState(canGoBack: false, canGoForward: false),
             bookmarks: const [],
-            defaultBrowserAvailable: false,
-            defaultBrowserHeld: false,
             onNavigate: (_) {},
             onBack: () {},
             onForward: () {},
@@ -79,7 +74,6 @@ void main() {
             onOpenBookmark: (_) {},
             onDeleteBookmark: (_) {},
             onShowSitePermissions: () {},
-            onRequestDefaultBrowser: () {},
           ),
         ),
       ),
@@ -100,5 +94,33 @@ void main() {
 
     expect(back.onPressed, isNull);
     expect(forward.onPressed, isNull);
+  });
+
+  testWidgets('main menu does not show a duplicate browser action', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: BrowserMenuSheet(
+            state: const BrowserState(),
+            bookmarks: const [],
+            onNavigate: (_) {},
+            onBack: () {},
+            onForward: () {},
+            onReload: () {},
+            onStop: () {},
+            onHome: () {},
+            onAddBookmark: () {},
+            onOpenBookmark: (_) {},
+            onDeleteBookmark: (_) {},
+            onShowSitePermissions: () {},
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('בית'), findsOneWidget);
+    expect(find.text('דפדפן'), findsNothing);
   });
 }

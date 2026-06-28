@@ -8,8 +8,6 @@ class BrowserMenuSheet extends StatefulWidget {
     super.key,
     required this.state,
     required this.bookmarks,
-    required this.defaultBrowserAvailable,
-    required this.defaultBrowserHeld,
     required this.onNavigate,
     required this.onBack,
     required this.onForward,
@@ -20,13 +18,10 @@ class BrowserMenuSheet extends StatefulWidget {
     required this.onOpenBookmark,
     required this.onDeleteBookmark,
     required this.onShowSitePermissions,
-    required this.onRequestDefaultBrowser,
   });
 
   final BrowserState state;
   final List<Bookmark> bookmarks;
-  final bool defaultBrowserAvailable;
-  final bool defaultBrowserHeld;
   final ValueChanged<String> onNavigate;
   final VoidCallback onBack;
   final VoidCallback onForward;
@@ -37,7 +32,6 @@ class BrowserMenuSheet extends StatefulWidget {
   final ValueChanged<Bookmark> onOpenBookmark;
   final ValueChanged<Bookmark> onDeleteBookmark;
   final VoidCallback onShowSitePermissions;
-  final VoidCallback onRequestDefaultBrowser;
 
   @override
   State<BrowserMenuSheet> createState() => _BrowserMenuSheetState();
@@ -50,7 +44,7 @@ class _BrowserMenuSheetState extends State<BrowserMenuSheet> {
   void initState() {
     super.initState();
     _controller = TextEditingController(
-      text: widget.state.currentUrl == 'about:blank'
+      text: _isHomeUrl(widget.state.currentUrl)
           ? ''
           : widget.state.currentUrl,
     );
@@ -158,16 +152,6 @@ class _BrowserMenuSheetState extends State<BrowserMenuSheet> {
                         );
                       }),
                     ),
-                    _ActionButton(
-                      icon: widget.defaultBrowserHeld
-                          ? Icons.check_circle_outline
-                          : Icons.public,
-                      label: widget.defaultBrowserHeld ? 'ברירת מחדל' : 'דפדפן',
-                      onPressed: widget.defaultBrowserAvailable &&
-                              !widget.defaultBrowserHeld
-                          ? _run(widget.onRequestDefaultBrowser)
-                          : null,
-                    ),
                   ],
                 ),
                 if (widget.bookmarks.isNotEmpty) ...[
@@ -227,6 +211,10 @@ class _BrowserMenuSheetState extends State<BrowserMenuSheet> {
       Navigator.of(context).pop();
       callback();
     };
+  }
+
+  bool _isHomeUrl(String url) {
+    return url == 'netflow://home' || url == 'about:blank';
   }
 }
 

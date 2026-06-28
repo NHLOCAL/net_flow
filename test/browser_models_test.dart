@@ -21,7 +21,7 @@ void main() {
   test('BrowserSettings has compact Android browser defaults', () {
     const settings = BrowserSettings.defaults();
 
-    expect(settings.homeUrl, 'about:blank');
+    expect(settings.homeUrl, 'netflow://home');
     expect(
         settings.searchUrlTemplate, 'https://www.google.com/search?q={query}');
     expect(settings.rememberPermissions, isTrue);

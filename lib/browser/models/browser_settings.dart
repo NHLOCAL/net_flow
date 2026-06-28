@@ -7,7 +7,7 @@ class BrowserSettings {
   });
 
   const BrowserSettings.defaults()
-      : homeUrl = 'about:blank',
+      : homeUrl = 'netflow://home',
         searchUrlTemplate = 'https://www.google.com/search?q={query}',
         rememberPermissions = true,
         desktopModeEnabled = false;
@@ -19,7 +19,7 @@ class BrowserSettings {
 
   factory BrowserSettings.fromJson(Map<String, dynamic> json) {
     return BrowserSettings(
-      homeUrl: (json['homeUrl'] ?? 'about:blank').toString(),
+      homeUrl: (json['homeUrl'] ?? 'netflow://home').toString(),
       searchUrlTemplate: (json['searchUrlTemplate'] ??
               'https://www.google.com/search?q={query}')
           .toString(),
