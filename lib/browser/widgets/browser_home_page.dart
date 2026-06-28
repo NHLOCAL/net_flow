@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../services/browser_text_direction.dart';
+
 class BrowserHomePage extends StatefulWidget {
   const BrowserHomePage({
     super.key,
@@ -14,10 +16,12 @@ class BrowserHomePage extends StatefulWidget {
 
 class _BrowserHomePageState extends State<BrowserHomePage> {
   final TextEditingController _controller = TextEditingController();
+  BrowserResolvedTextDirection _textDirection = BrowserTextDirection.rtl;
 
   @override
   void initState() {
     super.initState();
+    _controller.addListener(_syncTextDirection);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         FocusScope.of(context).unfocus();
@@ -27,8 +31,17 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
 
   @override
   void dispose() {
+    _controller.removeListener(_syncTextDirection);
     _controller.dispose();
     super.dispose();
+  }
+
+  void _syncTextDirection() {
+    final next = BrowserTextDirection.resolve(_controller.text);
+    if (next == _textDirection || !mounted) {
+      return;
+    }
+    setState(() => _textDirection = next);
   }
 
   void _submit() {
@@ -87,8 +100,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                         autofocus: false,
                         textInputAction: TextInputAction.search,
                         keyboardType: TextInputType.url,
-                        textDirection: TextDirection.ltr,
-                        textAlign: TextAlign.right,
+                        textDirection: _textDirection.textDirection,
+                        textAlign: _textDirection.textAlign,
                         minLines: 1,
                         maxLines: 1,
                         onSubmitted: (_) => _submit(),

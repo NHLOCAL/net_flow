@@ -128,6 +128,42 @@ void main() {
     expect(find.byKey(const Key('browser-home-search-field')), findsNothing);
   });
 
+  testWidgets('home search field switches direction by typed language', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CompactBrowserPage(
+          androidChannel: FakeAndroidBrowserChannel(),
+          webViewOverride: const SizedBox(key: Key('fake-webview')),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('browser-home-search-field')),
+      'בדיקת נטפרי',
+    );
+    await tester.pump();
+
+    TextField field = tester.widget(
+      find.byKey(const Key('browser-home-search-field')),
+    );
+    expect(field.textDirection, TextDirection.rtl);
+    expect(field.textAlign, TextAlign.right);
+
+    await tester.enterText(
+      find.byKey(const Key('browser-home-search-field')),
+      'example.com',
+    );
+    await tester.pump();
+
+    field = tester.widget(find.byKey(const Key('browser-home-search-field')));
+    expect(field.textDirection, TextDirection.ltr);
+    expect(field.textAlign, TextAlign.left);
+  });
+
   testWidgets('initial URL opens directly in the browser surface', (
     tester,
   ) async {

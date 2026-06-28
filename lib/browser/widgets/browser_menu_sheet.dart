@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/bookmark.dart';
 import '../models/browser_state.dart';
+import '../services/browser_text_direction.dart';
 
 class BrowserMenuSheet extends StatefulWidget {
   const BrowserMenuSheet({
@@ -30,6 +31,7 @@ class BrowserMenuSheet extends StatefulWidget {
 class _BrowserMenuSheetState extends State<BrowserMenuSheet> {
   late final TextEditingController _controller;
   late List<Bookmark> _visibleBookmarks;
+  late BrowserResolvedTextDirection _textDirection;
   bool _showBookmarks = false;
 
   @override
@@ -40,13 +42,24 @@ class _BrowserMenuSheetState extends State<BrowserMenuSheet> {
           ? ''
           : widget.state.currentUrl,
     );
+    _textDirection = BrowserTextDirection.resolve(_controller.text);
+    _controller.addListener(_syncTextDirection);
     _visibleBookmarks = List<Bookmark>.of(widget.bookmarks);
   }
 
   @override
   void dispose() {
+    _controller.removeListener(_syncTextDirection);
     _controller.dispose();
     super.dispose();
+  }
+
+  void _syncTextDirection() {
+    final next = BrowserTextDirection.resolve(_controller.text);
+    if (next == _textDirection || !mounted) {
+      return;
+    }
+    setState(() => _textDirection = next);
   }
 
   @override
@@ -58,6 +71,7 @@ class _BrowserMenuSheetState extends State<BrowserMenuSheet> {
         _controller.text == oldText) {
       _controller.text =
           _isHomeUrl(widget.state.currentUrl) ? '' : widget.state.currentUrl;
+      _textDirection = BrowserTextDirection.resolve(_controller.text);
     }
     if (oldWidget.bookmarks != widget.bookmarks) {
       _visibleBookmarks = List<Bookmark>.of(widget.bookmarks);
@@ -92,8 +106,8 @@ class _BrowserMenuSheetState extends State<BrowserMenuSheet> {
                   key: const Key('browser-address-field'),
                   controller: _controller,
                   autofocus: true,
-                  textDirection: TextDirection.ltr,
-                  textAlign: TextAlign.left,
+                  textDirection: _textDirection.textDirection,
+                  textAlign: _textDirection.textAlign,
                   keyboardType: TextInputType.url,
                   textInputAction: TextInputAction.go,
                   onSubmitted: _submit,

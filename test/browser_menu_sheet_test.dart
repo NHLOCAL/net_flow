@@ -85,6 +85,48 @@ void main() {
     );
   });
 
+  testWidgets('address field switches direction from Hebrew to URL text', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: BrowserMenuSheet(
+            state: const BrowserState(),
+            bookmarks: const [],
+            onNavigate: (_) {},
+            onAddBookmark: () {},
+            onOpenBookmark: (_) {},
+            onDeleteBookmark: (_) {},
+            onShowSitePermissions: () {},
+          ),
+        ),
+      ),
+    );
+
+    await tester.enterText(
+      find.byKey(const Key('browser-address-field')),
+      'בדיקת נטפרי',
+    );
+    await tester.pump();
+
+    TextField field = tester.widget(
+      find.byKey(const Key('browser-address-field')),
+    );
+    expect(field.textDirection, TextDirection.rtl);
+    expect(field.textAlign, TextAlign.right);
+
+    await tester.enterText(
+      find.byKey(const Key('browser-address-field')),
+      'example.com',
+    );
+    await tester.pump();
+
+    field = tester.widget(find.byKey(const Key('browser-address-field')));
+    expect(field.textDirection, TextDirection.ltr);
+    expect(field.textAlign, TextAlign.left);
+  });
+
   testWidgets('search icon submits the address field without an arrow button', (
     tester,
   ) async {
