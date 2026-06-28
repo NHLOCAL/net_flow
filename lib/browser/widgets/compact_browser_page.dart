@@ -16,6 +16,7 @@ import '../services/android_browser_channel.dart';
 import '../services/bookmark_store.dart';
 import '../services/download_service.dart';
 import '../services/netfree_browser_policy.dart';
+import '../services/search_history_store.dart';
 import '../services/settings_store.dart';
 import '../services/site_permission_store.dart';
 import '../services/url_resolver.dart';
@@ -46,11 +47,13 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
 
   InAppWebViewController? _webViewController;
   BookmarkStore? _bookmarkStore;
+  SearchHistoryStore? _searchHistoryStore;
   SitePermissionStore? _permissionStore;
 
   late BrowserState _state;
   BrowserSettings _settings = const BrowserSettings.defaults();
   List<Bookmark> _bookmarks = <Bookmark>[];
+  List<String> _searchHistory = <String>[];
   String? _pendingInitialUrl;
   int _webViewSeed = 0;
   Timer? _loadTimeoutTimer;
@@ -74,6 +77,7 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
   Future<void> _initialize() async {
     final preferences = await SharedPreferences.getInstance();
     final bookmarkStore = BookmarkStore(preferences);
+    final searchHistoryStore = SearchHistoryStore(preferences);
     final settingsStore = SettingsStore(preferences);
     final permissionStore = SitePermissionStore(preferences);
 
@@ -84,8 +88,10 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
 
     setState(() {
       _bookmarkStore = bookmarkStore;
+      _searchHistoryStore = searchHistoryStore;
       _permissionStore = permissionStore;
       _bookmarks = bookmarkStore.load();
+      _searchHistory = searchHistoryStore.load();
       _settings = settingsStore.load();
       _pendingInitialUrl = initialUrl;
     });
@@ -105,6 +111,14 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
 
   Future<void> _openIncomingUrl(String url) async {
     await _loadUrl(url);
+  }
+
+  Future<void> _navigateFromHome(String input) async {
+    final nextHistory = await _searchHistoryStore?.remember(input.trim());
+    if (nextHistory != null && mounted) {
+      setState(() => _searchHistory = nextHistory);
+    }
+    await _loadUrl(input);
   }
 
   Future<void> _loadUrl(String input) async {
@@ -855,7 +869,11 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
                     onOpenExternally: () => _openExternal(_state.error!.url),
                   )
                 : showHome
-                    ? BrowserHomePage(onNavigate: _loadUrl)
+                    ? BrowserHomePage(
+                        onNavigate: _navigateFromHome,
+                        recentSearches: _searchHistory,
+                        bookmarks: _bookmarks,
+                      )
                     : _buildWebView(),
           ),
           if (_state.isLoading)

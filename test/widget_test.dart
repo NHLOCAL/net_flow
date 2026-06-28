@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -51,6 +53,142 @@ void main() {
     expect(find.byKey(const Key('fake-webview')), findsNothing);
     expect(find.byKey(const Key('browser-bottom-bar')), findsOneWidget);
     expect(find.byKey(const Key('browser-menu-button')), findsOneWidget);
+  });
+
+  testWidgets('home search field uses a sharp linear style', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CompactBrowserPage(
+          androidChannel: FakeAndroidBrowserChannel(),
+          webViewOverride: const SizedBox(key: Key('fake-webview')),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final field = tester.widget<TextField>(
+      find.byKey(const Key('browser-home-search-field')),
+    );
+    final border = field.decoration?.border;
+
+    expect(field.style?.fontWeight, FontWeight.w500);
+    expect(border, isA<UnderlineInputBorder>());
+  });
+
+  testWidgets(
+    'home search shows recent history and matching bookmark suggestions',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({
+        'search_history': jsonEncode(['netfree status', 'example.com']),
+        'bookmarks': jsonEncode([
+          {'title': 'Netfree', 'url': 'https://netfree.link'},
+          {'title': 'Flutter', 'url': 'https://flutter.dev'},
+        ]),
+      });
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CompactBrowserPage(
+            androidChannel: FakeAndroidBrowserChannel(),
+            webViewOverride: const SizedBox(key: Key('fake-webview')),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const Key('browser-home-search-field')),
+        'net',
+      );
+      await tester.pump();
+
+      expect(
+        find.byKey(const Key('browser-home-suggestions-panel')),
+        findsOneWidget,
+      );
+      expect(find.text('netfree status'), findsOneWidget);
+      expect(find.text('Netfree'), findsOneWidget);
+      expect(find.text('Flutter'), findsNothing);
+
+      await tester.tap(find.text('Netfree'));
+      await tester.pump();
+
+      expect(find.byKey(const Key('fake-webview')), findsOneWidget);
+      expect(find.byKey(const Key('browser-home-search-field')), findsNothing);
+    },
+  );
+
+  testWidgets('home search clear button closes suggestions', (tester) async {
+    SharedPreferences.setMockInitialValues({
+      'search_history': jsonEncode(['netfree status', 'example.com']),
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CompactBrowserPage(
+          androidChannel: FakeAndroidBrowserChannel(),
+          webViewOverride: const SizedBox(key: Key('fake-webview')),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('browser-home-search-field')),
+      'net',
+    );
+    await tester.pump();
+    expect(
+      find.byKey(const Key('browser-home-suggestions-panel')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byTooltip('נקה'));
+    await tester.pump();
+
+    expect(
+      tester
+          .widget<TextField>(
+            find.byKey(const Key('browser-home-search-field')),
+          )
+          .controller
+          ?.text,
+      isEmpty,
+    );
+    expect(
+      find.byKey(const Key('browser-home-suggestions-panel')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('home search submission saves newest entries first', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      'search_history': jsonEncode(['old search']),
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CompactBrowserPage(
+          androidChannel: FakeAndroidBrowserChannel(),
+          webViewOverride: const SizedBox(key: Key('fake-webview')),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('browser-home-search-field')),
+      'new search',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pump();
+
+    final preferences = await SharedPreferences.getInstance();
+    final rawHistory = preferences.getString('search_history')!;
+
+    expect(jsonDecode(rawHistory), ['new search', 'old search']);
   });
 
   testWidgets('bottom navigation keeps core browser controls visible', (

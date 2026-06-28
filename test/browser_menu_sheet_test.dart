@@ -91,6 +91,32 @@ void main() {
     );
   });
 
+  testWidgets('address field uses a sharp linear style', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: BrowserMenuSheet(
+            state: const BrowserState(),
+            bookmarks: const [],
+            onNavigate: (_) {},
+            onAddBookmark: () {},
+            onOpenBookmark: (_) {},
+            onDeleteBookmark: (_) {},
+            onShowSitePermissions: () {},
+          ),
+        ),
+      ),
+    );
+
+    final field = tester.widget<TextField>(
+      find.byKey(const Key('browser-address-field')),
+    );
+    final border = field.decoration?.border;
+
+    expect(field.style?.fontWeight, FontWeight.w500);
+    expect(border, isA<UnderlineInputBorder>());
+  });
+
   testWidgets('address field switches direction from Hebrew to URL text', (
     tester,
   ) async {

@@ -1,14 +1,19 @@
 import 'package:flutter/material.dart';
 
+import '../models/bookmark.dart';
 import '../services/browser_text_direction.dart';
 
 class BrowserHomePage extends StatefulWidget {
   const BrowserHomePage({
     super.key,
     required this.onNavigate,
+    this.recentSearches = const <String>[],
+    this.bookmarks = const <Bookmark>[],
   });
 
   final ValueChanged<String> onNavigate;
+  final List<String> recentSearches;
+  final List<Bookmark> bookmarks;
 
   @override
   State<BrowserHomePage> createState() => _BrowserHomePageState();
@@ -16,12 +21,14 @@ class BrowserHomePage extends StatefulWidget {
 
 class _BrowserHomePageState extends State<BrowserHomePage> {
   final TextEditingController _controller = TextEditingController();
+  final FocusNode _focusNode = FocusNode();
   BrowserResolvedTextDirection _textDirection = BrowserTextDirection.rtl;
 
   @override
   void initState() {
     super.initState();
-    _controller.addListener(_syncTextDirection);
+    _controller.addListener(_handleInputChanged);
+    _focusNode.addListener(_handleFocusChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         FocusScope.of(context).unfocus();
@@ -31,21 +38,29 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
 
   @override
   void dispose() {
-    _controller.removeListener(_syncTextDirection);
+    _controller.removeListener(_handleInputChanged);
+    _focusNode.removeListener(_handleFocusChanged);
+    _focusNode.dispose();
     _controller.dispose();
     super.dispose();
   }
 
-  void _syncTextDirection() {
+  void _handleInputChanged() {
     final next = BrowserTextDirection.resolve(_controller.text);
-    if (next == _textDirection || !mounted) {
+    if (!mounted) {
       return;
     }
     setState(() => _textDirection = next);
   }
 
-  void _submit() {
-    final input = _controller.text.trim();
+  void _handleFocusChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  void _submit([String? value]) {
+    final input = (value ?? _controller.text).trim();
     if (input.isEmpty) {
       return;
     }
@@ -53,9 +68,15 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
     widget.onNavigate(input);
   }
 
+  void _clearSearch() {
+    _controller.clear();
+    FocusScope.of(context).unfocus();
+  }
+
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final suggestions = _suggestions();
 
     return Directionality(
       textDirection: TextDirection.rtl,
@@ -84,60 +105,83 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                               ),
                         ),
                         SizedBox(height: compact ? 18 : 26),
-                        DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: colorScheme.surfaceContainerHighest
-                                .withValues(alpha: 0.92),
-                            borderRadius: BorderRadius.circular(28),
-                            border: Border.all(
-                              color: colorScheme.outlineVariant
-                                  .withValues(alpha: 0.86),
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color:
-                                    colorScheme.primary.withValues(alpha: 0.10),
-                                blurRadius: 28,
-                                offset: const Offset(0, 14),
-                              ),
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.06),
-                                blurRadius: 12,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
+                        TextField(
+                          key: const Key('browser-home-search-field'),
+                          controller: _controller,
+                          focusNode: _focusNode,
+                          autofocus: false,
+                          textInputAction: TextInputAction.search,
+                          keyboardType: TextInputType.url,
+                          textDirection: _textDirection.textDirection,
+                          textAlign: _textDirection.textAlign,
+                          style: TextStyle(
+                            color: colorScheme.onSurface,
+                            fontSize: 19,
+                            fontWeight: FontWeight.w500,
+                            height: 1.12,
                           ),
-                          child: TextField(
-                            key: const Key('browser-home-search-field'),
-                            controller: _controller,
-                            autofocus: false,
-                            textInputAction: TextInputAction.search,
-                            keyboardType: TextInputType.url,
-                            textDirection: _textDirection.textDirection,
-                            textAlign: _textDirection.textAlign,
-                            minLines: 1,
-                            maxLines: 1,
-                            onSubmitted: (_) => _submit(),
-                            decoration: InputDecoration(
-                              hintText: 'חיפוש או כתובת אתר',
-                              border: InputBorder.none,
-                              prefixIcon: IconButton(
-                                tooltip: 'חפש',
-                                icon: const Icon(Icons.search),
-                                onPressed: _submit,
+                          minLines: 1,
+                          maxLines: 1,
+                          cursorColor: colorScheme.primary,
+                          onSubmitted: (_) => _submit(),
+                          decoration: InputDecoration(
+                            hintText: 'חיפוש או כתובת אתר',
+                            hintStyle: TextStyle(
+                              color: colorScheme.onSurfaceVariant.withValues(
+                                alpha: 0.86,
                               ),
-                              suffixIcon: IconButton(
-                                tooltip: 'נקה',
-                                icon: const Icon(Icons.close),
-                                onPressed: () => _controller.clear(),
-                              ),
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 4,
-                                vertical: 16,
-                              ),
+                              fontSize: 19,
+                              fontWeight: FontWeight.w400,
+                            ),
+                            border: _homeSearchLine(
+                              colorScheme.primary.withValues(alpha: 0.76),
+                            ),
+                            enabledBorder: _homeSearchLine(
+                              colorScheme.onSurface.withValues(alpha: 0.62),
+                            ),
+                            focusedBorder: _homeSearchLine(
+                              colorScheme.primary,
+                              width: 2.3,
+                            ),
+                            prefixIcon: IconButton(
+                              tooltip: 'חפש',
+                              icon: const Icon(Icons.search),
+                              color: colorScheme.onSurface,
+                              onPressed: _submit,
+                            ),
+                            suffixIcon: IconButton(
+                              tooltip: 'נקה',
+                              icon: const Icon(Icons.close),
+                              color: colorScheme.onSurface,
+                              onPressed: _clearSearch,
+                            ),
+                            prefixIconConstraints:
+                                const BoxConstraints.tightFor(
+                              width: 48,
+                              height: 48,
+                            ),
+                            suffixIconConstraints:
+                                const BoxConstraints.tightFor(
+                              width: 48,
+                              height: 48,
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 12,
                             ),
                           ),
                         ),
+                        if (_focusNode.hasFocus && suggestions.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          _HomeSuggestionsPanel(
+                            suggestions: suggestions,
+                            onSelected: (suggestion) {
+                              _controller.text = suggestion.value;
+                              _submit(suggestion.value);
+                            },
+                            maxHeight: compact ? 168 : 220,
+                          ),
+                        ],
                         const Spacer(flex: 3),
                       ],
                     ),
@@ -150,6 +194,128 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
       ),
     );
   }
+
+  List<_HomeSearchSuggestion> _suggestions() {
+    final query = _controller.text.trim().toLowerCase();
+    bool matches(String value) {
+      return query.isEmpty || value.toLowerCase().contains(query);
+    }
+
+    final historySuggestions = widget.recentSearches
+        .where(matches)
+        .map(
+          (item) => _HomeSearchSuggestion(
+            title: item,
+            value: item,
+            icon: Icons.history,
+          ),
+        )
+        .toList();
+    final bookmarkSuggestions = widget.bookmarks
+        .where(
+          (bookmark) => matches(bookmark.title) || matches(bookmark.url),
+        )
+        .map(
+          (bookmark) => _HomeSearchSuggestion(
+            title: bookmark.title.isEmpty ? bookmark.url : bookmark.title,
+            subtitle: bookmark.url,
+            value: bookmark.url,
+            icon: Icons.bookmark_outline,
+          ),
+        )
+        .toList();
+
+    return <_HomeSearchSuggestion>[
+      ...historySuggestions,
+      ...bookmarkSuggestions,
+    ].take(6).toList(growable: false);
+  }
+}
+
+class _HomeSearchSuggestion {
+  const _HomeSearchSuggestion({
+    required this.title,
+    required this.value,
+    required this.icon,
+    this.subtitle,
+  });
+
+  final String title;
+  final String? subtitle;
+  final String value;
+  final IconData icon;
+}
+
+class _HomeSuggestionsPanel extends StatelessWidget {
+  const _HomeSuggestionsPanel({
+    required this.suggestions,
+    required this.onSelected,
+    required this.maxHeight,
+  });
+
+  final List<_HomeSearchSuggestion> suggestions;
+  final ValueChanged<_HomeSearchSuggestion> onSelected;
+  final double maxHeight;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return ConstrainedBox(
+      key: const Key('browser-home-suggestions-panel'),
+      constraints: BoxConstraints(maxHeight: maxHeight),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: colorScheme.surface.withValues(alpha: 0.72),
+          border: Border.symmetric(
+            horizontal: BorderSide(
+              color: colorScheme.onSurface.withValues(alpha: 0.26),
+            ),
+          ),
+        ),
+        child: ListView.builder(
+          padding: EdgeInsets.zero,
+          shrinkWrap: true,
+          itemCount: suggestions.length,
+          itemBuilder: (context, index) {
+            final suggestion = suggestions[index];
+            return ListTile(
+              dense: true,
+              leading: Icon(suggestion.icon, size: 20),
+              title: Text(
+                suggestion.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: colorScheme.onSurface,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              subtitle: suggestion.subtitle == null
+                  ? null
+                  : Text(
+                      suggestion.subtitle!,
+                      textDirection: TextDirection.ltr,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: colorScheme.onSurfaceVariant.withValues(
+                          alpha: 0.86,
+                        ),
+                      ),
+                    ),
+              onTap: () => onSelected(suggestion),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+UnderlineInputBorder _homeSearchLine(Color color, {double width = 1.3}) {
+  return UnderlineInputBorder(
+    borderSide: BorderSide(color: color, width: width),
+  );
 }
 
 class _HomeBackdrop extends StatelessWidget {
@@ -220,7 +386,7 @@ class _HomeBackdropPainter extends CustomPainter {
 
     _drawNetwork(canvas, size);
     _drawBubbles(canvas, size);
-    _drawFilterGate(canvas, size);
+    _drawFlowFocus(canvas, size);
   }
 
   void _drawFlowGrid(Canvas canvas, Size size) {
@@ -374,38 +540,50 @@ class _HomeBackdropPainter extends CustomPainter {
     }
   }
 
-  void _drawFilterGate(Canvas canvas, Size size) {
+  void _drawFlowFocus(Canvas canvas, Size size) {
     final center = Offset(size.width * 0.78, size.height * 0.66);
-    final gateRect = RRect.fromRectAndRadius(
-      Rect.fromCenter(
-        center: center,
-        width: 74,
-        height: 92,
-      ),
-      const Radius.circular(24),
-    );
-    final gatePaint = Paint()
-      ..color = colorScheme.surface.withValues(alpha: 0.42)
+    final fillPaint = Paint()
+      ..color = colorScheme.surface.withValues(alpha: 0.18)
       ..style = PaintingStyle.fill;
-    final borderPaint = Paint()
-      ..color = colorScheme.primary.withValues(alpha: 0.14)
+    final ringPaint = Paint()
+      ..color = colorScheme.primary.withValues(alpha: 0.13)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.4;
-    final checkPaint = Paint()
-      ..color = colorScheme.primary.withValues(alpha: 0.24)
+      ..strokeWidth = 1.3;
+    final accentPaint = Paint()
+      ..color = colorScheme.tertiary.withValues(alpha: 0.12)
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round
-      ..strokeWidth = 4;
+      ..strokeWidth = 2.2;
 
-    canvas.drawRRect(gateRect, gatePaint);
-    canvas.drawRRect(gateRect, borderPaint);
+    canvas.drawCircle(center, 38, fillPaint);
+    canvas.drawCircle(center, 38, ringPaint);
+    canvas.drawCircle(center.translate(-2, 1), 24, ringPaint);
+    canvas.drawCircle(center.translate(-3, 2), 9, ringPaint);
 
-    final checkPath = Path()
-      ..moveTo(center.dx - 18, center.dy + 2)
-      ..lineTo(center.dx - 5, center.dy + 15)
-      ..lineTo(center.dx + 20, center.dy - 16);
-    canvas.drawPath(checkPath, checkPaint);
+    final flowPath = Path()
+      ..moveTo(center.dx - 42, center.dy - 8)
+      ..cubicTo(
+        center.dx - 18,
+        center.dy - 24,
+        center.dx + 13,
+        center.dy - 20,
+        center.dx + 34,
+        center.dy - 34,
+      );
+    canvas.drawPath(flowPath, accentPaint);
+
+    final exitPath = Path()
+      ..moveTo(center.dx - 34, center.dy + 30)
+      ..cubicTo(
+        center.dx - 8,
+        center.dy + 16,
+        center.dx + 19,
+        center.dy + 21,
+        center.dx + 43,
+        center.dy + 4,
+      );
+    canvas.drawPath(exitPath, accentPaint);
   }
 
   @override

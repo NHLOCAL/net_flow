@@ -83,6 +83,7 @@ class _BrowserMenuSheetState extends State<BrowserMenuSheet> {
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    final colorScheme = Theme.of(context).colorScheme;
     return Directionality(
       textDirection: TextDirection.rtl,
       child: SafeArea(
@@ -107,11 +108,25 @@ class _BrowserMenuSheetState extends State<BrowserMenuSheet> {
                   autofocus: true,
                   textDirection: _textDirection.textDirection,
                   textAlign: _textDirection.textAlign,
+                  style: TextStyle(
+                    color: colorScheme.onSurface,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                    height: 1.12,
+                  ),
                   keyboardType: TextInputType.url,
                   textInputAction: TextInputAction.go,
+                  cursorColor: colorScheme.primary,
                   onSubmitted: _submit,
                   decoration: InputDecoration(
                     hintText: 'חיפוש או כתובת אתר',
+                    hintStyle: TextStyle(
+                      color: colorScheme.onSurfaceVariant.withValues(
+                        alpha: 0.86,
+                      ),
+                      fontSize: 16,
+                      fontWeight: FontWeight.w400,
+                    ),
                     suffixIcon: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -119,19 +134,32 @@ class _BrowserMenuSheetState extends State<BrowserMenuSheet> {
                           key: const Key('browser-address-clear-button'),
                           tooltip: 'נקה',
                           icon: const Icon(Icons.close),
+                          color: colorScheme.onSurface,
                           onPressed: _controller.clear,
                         ),
                         IconButton(
                           key: const Key('browser-address-search-button'),
                           tooltip: 'חפש',
                           icon: const Icon(Icons.search),
+                          color: colorScheme.onSurface,
                           onPressed: () => _submit(_controller.text),
                         ),
                       ],
                     ),
                     isDense: true,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
+                    border: _menuSearchLine(
+                      colorScheme.primary.withValues(alpha: 0.76),
+                    ),
+                    enabledBorder: _menuSearchLine(
+                      colorScheme.onSurface.withValues(alpha: 0.62),
+                    ),
+                    focusedBorder: _menuSearchLine(
+                      colorScheme.primary,
+                      width: 2.3,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 12,
                     ),
                   ),
                 ),
@@ -205,6 +233,12 @@ class _BrowserMenuSheetState extends State<BrowserMenuSheet> {
   bool _isHomeUrl(String url) {
     return url == 'netflow://home' || url == 'about:blank';
   }
+}
+
+UnderlineInputBorder _menuSearchLine(Color color, {double width = 1.3}) {
+  return UnderlineInputBorder(
+    borderSide: BorderSide(color: color, width: width),
+  );
 }
 
 class _CompactActionRow extends StatelessWidget {
