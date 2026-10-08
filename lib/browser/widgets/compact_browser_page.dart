@@ -47,6 +47,7 @@ class CompactBrowserPage extends StatefulWidget {
     this.webViewOverride,
     this.webViewControllerOverride,
     this.webViewTestEvents,
+    this.onWebViewReadyForTest,
     this.androidChannel,
     this.downloadService = const DownloadService(),
     this.initialState = const BrowserState(),
@@ -60,6 +61,9 @@ class CompactBrowserPage extends StatefulWidget {
 
   /// Supplies synthetic native navigation events in widget regression tests.
   final BrowserWebViewTestEvents? webViewTestEvents;
+
+  /// Native Android integration tests can drive the actual WebView with JS.
+  final ValueChanged<InAppWebViewController>? onWebViewReadyForTest;
 
   final AndroidBrowserChannel? androidChannel;
   final DownloadService downloadService;
@@ -943,6 +947,7 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
       onWebViewCreated: (controller) {
         if (mounted && _webViewSeed == viewSeed) {
           _webViewController = controller;
+          widget.onWebViewReadyForTest?.call(controller);
           unawaited(_refreshNavigationState());
         }
       },
