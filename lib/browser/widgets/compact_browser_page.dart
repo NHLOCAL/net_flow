@@ -363,18 +363,25 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
     String stoppedUrl,
     int expectedSeed,
   ) async {
+    final revision = _webViewEventRevision;
     try {
-      // The callback may belong to an older load on this reused controller.
-      // Compare with the page the native WebView is displaying now, not with
-      // the originally requested URL (redirects and link clicks are valid).
+      // A reused controller can send a late load-stop from a superseded page.
+      // Check the native URL AND native loading status. URL alone cannot
+      // distinguish two overlapping loads/reloads of the *same* address.
       final liveUrl = await controller.getUrl();
       if (!mounted ||
           _webViewController != controller ||
-          _webViewSeed != expectedSeed) {
+          _webViewSeed != expectedSeed ||
+          _webViewEventRevision != revision ||
+          (liveUrl != null && !_urlsMatch(liveUrl.toString(), stoppedUrl))) {
         return;
       }
-      if (liveUrl != null &&
-          !_urlsMatch(liveUrl.toString(), stoppedUrl)) {
+      final stillLoading = await controller.isLoading();
+      if (!mounted ||
+          _webViewController != controller ||
+          _webViewSeed != expectedSeed ||
+          _webViewEventRevision != revision ||
+          stillLoading) {
         return;
       }
       _handlePageLoadStop(liveUrl?.toString() ?? stoppedUrl);

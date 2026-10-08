@@ -1068,6 +1068,36 @@ void main() {
     expect(find.byTooltip('רענן'), findsOneWidget);
   });
 
+  testWidgets('same-URL superseded load-stop keeps replacement loading',
+      (tester) async {
+    final events = BrowserWebViewTestEvents();
+    final controller = FakeHistoryWebViewController(
+      urls: <String>['https://same.example/'],
+      currentIndex: 0,
+    )..nativeIsLoading = true;
+    await tester.pumpWidget(MaterialApp(
+      home: CompactBrowserPage(
+        androidChannel: FakeAndroidBrowserChannel(),
+        webViewOverride: const SizedBox(key: Key('fake-webview')),
+        webViewControllerOverride: controller,
+        webViewTestEvents: events,
+        initialState: const BrowserState(
+          currentUrl: 'https://same.example/',
+          isLoading: true,
+        ),
+      ),
+    ));
+    await tester.pump(const Duration(milliseconds: 250));
+    events.loadStarted?.call('https://same.example/');
+    events.loadStopped?.call('https://same.example/');
+    await tester.pump();
+    expect(find.byTooltip('עצור'), findsOneWidget);
+    controller.nativeIsLoading = false;
+    events.loadStopped?.call('https://same.example/');
+    await tester.pump();
+    expect(find.byTooltip('רענן'), findsOneWidget);
+  });
+
   testWidgets('same-URL reload ignores error while native loading continues',
       (tester) async {
     final events = BrowserWebViewTestEvents();

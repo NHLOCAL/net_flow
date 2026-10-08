@@ -100,7 +100,10 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 150));
       }
       expect(addressFinder, findsOneWidget);
-      await tester.pumpAndSettle();
+      // Embedded Android WebView can schedule ongoing frames. Use bounded
+      // pumps rather than waiting for the entire app to become idle.
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 300));
     }
 
     await waitForUrl('/www');
@@ -129,7 +132,7 @@ void main() {
     expect(addressField.controller!.text, '$origin/article');
 
     await tester.tap(find.text('שמור'));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 350));
     await preferences.reload();
     final bookmarks = jsonDecode(preferences.getString('bookmarks')!)
         as List<dynamic>;
