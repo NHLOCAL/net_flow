@@ -54,7 +54,11 @@ class FakeHistoryWebViewController extends Fake
       );
 
   @override
-  Future<void> loadUrl({required URLRequest urlRequest}) async {
+  Future<void> loadUrl({
+    required URLRequest urlRequest,
+    WebUri? allowingReadAccessTo,
+    Uri? iosAllowingReadAccessTo,
+  }) async {
     final newUrl = urlRequest.url?.toString();
     if (newUrl == null) {
       return;
