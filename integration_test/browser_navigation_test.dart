@@ -87,6 +87,22 @@ void main() {
       fail('WebView did not reach $targetPath; got $observed');
     }
 
+
+    Future<void> openAddressMenu() async {
+      await tester.tap(find.byKey(const Key('browser-menu-button')));
+      // _showMenu refreshes the native URL asynchronously. pumpAndSettle
+      // alone can finish before the platform-channel call returns.
+      final deadline = DateTime.now().add(const Duration(seconds: 15));
+      final addressFinder = find.byKey(const Key('browser-address-field'));
+      while (addressFinder.evaluate().isEmpty &&
+          DateTime.now().isBefore(deadline)) {
+        await tester.pump(const Duration(milliseconds: 100));
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+      }
+      expect(addressFinder, findsOneWidget);
+      await tester.pumpAndSettle();
+    }
+
     await waitForUrl('/www');
     expect(controller, isNotNull);
 
@@ -106,8 +122,7 @@ void main() {
     }
     expect(await controller!.canGoBack(), isTrue);
 
-    await tester.tap(find.byKey(const Key('browser-menu-button')));
-    await tester.pumpAndSettle();
+    await openAddressMenu();
     final addressField = tester.widget<TextField>(
       find.byKey(const Key('browser-address-field')),
     );
@@ -127,8 +142,7 @@ void main() {
     await waitForUrl('/article');
 
     // Check that the address menu follows the real page after traversing.
-    await tester.tap(find.byKey(const Key('browser-menu-button')));
-    await tester.pumpAndSettle();
+    await openAddressMenu();
     expect(
       tester.widget<TextField>(
         find.byKey(const Key('browser-address-field')),
