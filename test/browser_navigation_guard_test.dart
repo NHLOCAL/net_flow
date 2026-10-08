@@ -46,6 +46,25 @@ void main() {
     expect(guard.acceptLoadStop('https://c.test/redirect'), isTrue);
   });
 
+  test('WebView normalization of an origin does not lose its load', () {
+    final guard = BrowserNavigationGuard();
+    guard.navigateTo('https://example.com');
+
+    expect(guard.acceptLoadStart('https://example.com/'), isTrue);
+    expect(guard.isCurrentUrl('https://example.com'), isTrue);
+    expect(guard.acceptLoadStop('https://example.com/'), isTrue);
+  });
+
+  test('different paths and query strings remain distinct loads', () {
+    final guard = BrowserNavigationGuard();
+    guard.navigateTo('https://example.com/a?q=one');
+
+    expect(guard.acceptLoadStop('https://example.com/a?q=two'), isFalse);
+    expect(guard.acceptLoadStop('https://example.com/b?q=one'), isFalse);
+    expect(guard.acceptLoadStart('https://example.com/a?q=one'), isTrue);
+    expect(guard.acceptLoadStop('https://example.com/a?q=one'), isTrue);
+  });
+
   test('reset and cancellation do not leave a pending URL', () {
     final guard = BrowserNavigationGuard(initialUrl: 'https://a.test/');
     guard.navigateTo('https://b.test/');

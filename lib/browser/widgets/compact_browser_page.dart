@@ -766,8 +766,8 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
           return;
         }
         final stoppedUrl = url?.toString() ?? _state.currentUrl;
-        if (!_navigationGuard.acceptLoadStop(stoppedUrl) ||
-            stoppedUrl != _state.currentUrl) {
+        if (!_navigationGuard.isCurrentUrl(stoppedUrl) ||
+            !_navigationGuard.acceptLoadStop(stoppedUrl)) {
           // A superseded navigation must never overwrite the newer request.
           return;
         }
@@ -803,7 +803,6 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
         if (!mounted ||
             _webViewController != controller ||
             request.isForMainFrame != true ||
-            request.url.toString() != _state.currentUrl ||
             !_navigationGuard.isCurrentUrl(request.url.toString())) {
           return;
         }
