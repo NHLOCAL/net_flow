@@ -966,4 +966,67 @@ void main() {
     );
   });
 
+  testWidgets('ignore stale main-frame failures from earlier pages',
+      (tester) async {
+    final events = BrowserWebViewTestEvents();
+    final controller = FakeHistoryWebViewController(
+      urls: <String>['https://second.example/'],
+      currentIndex: 0,
+    );
+    await tester.pumpWidget(MaterialApp(
+      home: CompactBrowserPage(
+        androidChannel: FakeAndroidBrowserChannel(),
+        webViewOverride: const SizedBox(key: Key('fake-webview')),
+        webViewControllerOverride: controller,
+        webViewTestEvents: events,
+        initialState: const BrowserState(
+          currentUrl: 'https://second.example/',
+          isLoading: true,
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    events.loadStarted?.call('https://second.example/');
+    events.mainFrameError?.call('https://first.example/');
+    await tester.pump();
+    expect(find.byTooltip('עצור'), findsOneWidget);
+
+    events.mainFrameError?.call('https://second.example/');
+    await tester.pump();
+    expect(find.byTooltip('רענן'), findsOneWidget);
+  });
+
+  testWidgets('do not bookmark native about blank during pending navigation',
+      (tester) async {
+    final controller = FakeHistoryWebViewController(
+      urls: <String>['about:blank'],
+      currentIndex: 0,
+    );
+    await tester.pumpWidget(MaterialApp(
+      home: CompactBrowserPage(
+        androidChannel: FakeAndroidBrowserChannel(),
+        webViewOverride: const SizedBox(key: Key('fake-webview')),
+        webViewControllerOverride: controller,
+        initialState: const BrowserState(
+          currentUrl: 'https://intended.example/article',
+          isLoading: true,
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('browser-menu-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('שמור'));
+    await tester.pumpAndSettle();
+
+    final preferences = await SharedPreferences.getInstance();
+    final bookmarks = jsonDecode(
+      preferences.getString('bookmarks')!,
+    ) as List<dynamic>;
+    expect((bookmarks.first as Map<String, dynamic>)['url'],
+        'https://intended.example/article');
+  });
+
 }

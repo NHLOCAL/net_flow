@@ -32,12 +32,14 @@ class BrowserWebViewTestEvents {
   void Function(String url)? visitedHistory;
   void Function(String url)? loadStopped;
   void Function(String? title)? titleChanged;
+  void Function(String failedUrl)? mainFrameError;
 
   void clear() {
     loadStarted = null;
     visitedHistory = null;
     loadStopped = null;
     titleChanged = null;
+    mainFrameError = null;
   }
 }
 
@@ -109,6 +111,7 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
       events.visitedHistory = _handleVisitedHistory;
       events.loadStopped = _handlePageLoadStop;
       events.titleChanged = _handlePageTitleChanged;
+      events.mainFrameError = _handleMainFrameError;
     }
     unawaited(_initialize());
   }
@@ -322,8 +325,27 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
     });
   }
 
-  void _handleMainFrameError() {
-    if (!mounted) {
+  bool _isCurrentFrameUrl(String url) {
+    if (url == _state.currentUrl) {
+      return true;
+    }
+    final current = Uri.tryParse(_state.currentUrl);
+    final failed = Uri.tryParse(url);
+    if (current == null || failed == null) {
+      return false;
+    }
+    return current.scheme == failed.scheme &&
+        current.host == failed.host &&
+        current.port == failed.port &&
+        (current.path.isEmpty ? '/' : current.path) ==
+            (failed.path.isEmpty ? '/' : failed.path) &&
+        current.query == failed.query &&
+        current.fragment == failed.fragment;
+  }
+
+  void _handleMainFrameError(String failedUrl) {
+    if (!mounted || !_isCurrentFrameUrl(failedUrl)) {
+      // An old request canceled by a new navigation is not the current page.
       return;
     }
     _webViewEventRevision++;
@@ -693,19 +715,27 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
     if (controller != null) {
       try {
         final liveUrl = await controller.getUrl();
-        if (liveUrl != null && liveUrl.toString().isNotEmpty) {
-          url = liveUrl.toString();
-        }
-        final liveTitle = await controller.getTitle();
-        if (liveTitle != null && liveTitle.isNotEmpty) {
-          title = liveTitle;
+        final liveAddress = liveUrl?.toString();
+        if (liveAddress != null &&
+            liveAddress.isNotEmpty &&
+            liveAddress != 'about:blank') {
+          url = liveAddress;
+          if (!_state.isLoading) {
+            final liveTitle = await controller.getTitle();
+            if (liveTitle != null && liveTitle.isNotEmpty) {
+              title = liveTitle;
+            }
+          }
         }
       } catch (_) {
         // Use the most recently reported WebView URL if the view is disposed.
       }
     }
 
-    if (!mounted || url.isEmpty || _isHomeUrl(url)) {
+    if (!mounted ||
+        url.isEmpty ||
+        url == 'about:blank' ||
+        _isHomeUrl(url)) {
       return;
     }
     if (title == 'Net Flow' || title.isEmpty) {
@@ -1004,7 +1034,7 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
             request.isForMainFrame != true) {
           return;
         }
-        _handleMainFrameError();
+        _handleMainFrameError(request.url.toString());
       },
       onDownloadStartRequest: (_, request) => _handleDownload(request),
       onPermissionRequest: (_, request) => _handlePermissionRequest(request),
