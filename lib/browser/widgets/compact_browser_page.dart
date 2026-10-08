@@ -56,6 +56,8 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
   List<String> _searchHistory = <String>[];
   String? _pendingInitialUrl;
   int _webViewSeed = 0;
+  String? _deferredStoppedUrl;
+  int? _deferredStoppedRevision;
   final NetfreeBrowserPolicy _netfreePolicy = const NetfreeBrowserPolicy();
 
   @override
@@ -210,19 +212,49 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
     InAppWebViewController controller,
     String url,
   ) async {
+    final revision = _navigationGuard.revision;
     try {
       final currentUrl = await controller.getUrl();
       if (!mounted ||
           _webViewController != controller ||
+          _navigationGuard.revision != revision ||
+          !_state.isLoading ||
           currentUrl == null ||
-          !BrowserNavigationGuard.urlsMatch(currentUrl.toString(), url) ||
-          !_navigationGuard.acceptVerifiedLoadStart(url)) {
+          !BrowserNavigationGuard.urlsMatch(currentUrl.toString(), url)) {
         return;
       }
-      _applyLoadStarted(url);
+
+      final alreadyStopped =
+          _deferredStoppedRevision == revision &&
+          _deferredStoppedUrl != null &&
+          BrowserNavigationGuard.urlsMatch(_deferredStoppedUrl!, url);
+      if (!_navigationGuard.acceptVerifiedLoadStart(url)) {
+        return;
+      }
+
+      if (alreadyStopped && _navigationGuard.acceptLoadStop(url)) {
+        await _completeLoadStop(url);
+      } else {
+        _applyLoadStarted(url);
+      }
     } catch (_) {
-      // Do not let a stale platform callback replace the active navigation.
+      // Do not let a delayed verification restart a stopped or newer load.
     }
+  }
+
+  Future<void> _completeLoadStop(String url) async {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _pendingInitialUrl = null;
+      _state = _state.copyWith(
+        currentUrl: url,
+        isLoading: false,
+        progress: 1,
+      );
+    });
+    await _refreshNavigationState();
   }
 
   void _applyVisitedUrl(String url) {
@@ -241,10 +273,12 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
     InAppWebViewController controller,
     String url,
   ) async {
+    final revision = _navigationGuard.revision;
     try {
       final currentUrl = await controller.getUrl();
       if (!mounted ||
           _webViewController != controller ||
+          _navigationGuard.revision != revision ||
           currentUrl == null ||
           !BrowserNavigationGuard.urlsMatch(currentUrl.toString(), url) ||
           !_navigationGuard.acceptVerifiedVisitedUrl(url)) {
@@ -833,18 +867,15 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
         final stoppedUrl = url?.toString() ?? _state.currentUrl;
         if (!_navigationGuard.isCurrentUrl(stoppedUrl) ||
             !_navigationGuard.acceptLoadStop(stoppedUrl)) {
-          // A superseded navigation must never overwrite the newer request.
+          // An ambiguous redirect might have finished while getUrl() was
+          // still pending. Remember the completion for the same revision.
+          if (_navigationGuard.isSupersededUrl(stoppedUrl)) {
+            _deferredStoppedUrl = stoppedUrl;
+            _deferredStoppedRevision = _navigationGuard.revision;
+          }
           return;
         }
-        setState(() {
-          _pendingInitialUrl = null;
-          _state = _state.copyWith(
-            currentUrl: stoppedUrl,
-            isLoading: false,
-            progress: 1,
-          );
-        });
-        await _refreshNavigationState();
+        await _completeLoadStop(stoppedUrl);
       },
       onUpdateVisitedHistory: (controller, url, _) {
         if (!mounted || _webViewController != controller || url == null) {

@@ -190,6 +190,42 @@ void main() {
     expect(guard.isCurrentUrl('https://c.test/'), isTrue);
   });
 
+  test('revision invalidates delayed verification after manual stop', () {
+    final guard = BrowserNavigationGuard(initialUrl: 'https://a.test/');
+    guard.navigateTo('https://b.test/');
+    expect(guard.acceptLoadStart('https://b.test/'), isTrue);
+
+    final beforeAwait = guard.revision;
+    guard.cancelPending();
+    expect(guard.revision, greaterThan(beforeAwait));
+    expect(guard.isCurrentUrl('https://b.test/'), isTrue);
+    expect(guard.acceptLoadStart('https://a.test/'), isFalse);
+  });
+
+  test('revision invalidates delayed verification after a completed load', () {
+    final guard = BrowserNavigationGuard(initialUrl: 'https://a.test/');
+    guard.navigateTo('https://b.test/');
+    expect(guard.acceptLoadStart('https://b.test/'), isTrue);
+
+    final beforeAwait = guard.revision;
+    expect(guard.acceptLoadStop('https://b.test/'), isTrue);
+    expect(guard.revision, greaterThan(beforeAwait));
+  });
+
+  test('all superseded URLs remain guarded after many navigations', () {
+    final guard = BrowserNavigationGuard(initialUrl: 'https://old.test/');
+    for (var i = 0; i < 25; i++) {
+      final url = 'https://page$i.test/';
+      guard.navigateTo(url);
+      expect(guard.acceptLoadStart(url), isTrue);
+      expect(guard.acceptLoadStop(url), isTrue);
+    }
+
+    expect(guard.isSupersededUrl('https://old.test/'), isTrue);
+    expect(guard.acceptLoadStart('https://old.test/'), isFalse);
+    expect(guard.acceptVisitedUrl('https://old.test/'), isFalse);
+  });
+
   test('reset and cancellation do not leave a pending URL', () {
     final guard = BrowserNavigationGuard(initialUrl: 'https://a.test/');
     guard.navigateTo('https://b.test/');

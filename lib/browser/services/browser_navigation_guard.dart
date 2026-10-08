@@ -5,12 +5,14 @@
 class BrowserNavigationGuard {
   BrowserNavigationGuard({String? initialUrl}) : _activeUrl = initialUrl;
 
-  static const _maxSupersededUrls = 16;
-
   String? _activeUrl;
   String? _pendingRequestedUrl;
   bool _isNavigating = false;
+  int _revision = 0;
   final Set<String> _supersededUrls = <String>{};
+
+  /// Changes whenever an asynchronous callback must be invalidated.
+  int get revision => _revision;
 
   void navigateTo(String url) {
     _rememberPreviousUrl(url);
@@ -19,6 +21,7 @@ class BrowserNavigationGuard {
     _activeUrl = url;
     _pendingRequestedUrl = url;
     _isNavigating = true;
+    _revision++;
   }
 
   void resetTo(String url) {
@@ -26,6 +29,7 @@ class BrowserNavigationGuard {
     _pendingRequestedUrl = null;
     _isNavigating = false;
     _supersededUrls.clear();
+    _revision++;
   }
 
   bool acceptLoadStart(String url) {
@@ -49,6 +53,9 @@ class BrowserNavigationGuard {
     if (!_matchesPendingRequest(url) || isSupersededUrl(url)) {
       return false;
     }
+    if (!isCurrentUrl(url)) {
+      _revision++;
+    }
     _activeUrl = url;
     return true;
   }
@@ -59,6 +66,9 @@ class BrowserNavigationGuard {
       return false;
     }
     _forgetSuperseded(url);
+    if (!isCurrentUrl(url)) {
+      _revision++;
+    }
     _activeUrl = url;
     return true;
   }
@@ -69,6 +79,7 @@ class BrowserNavigationGuard {
     }
     _pendingRequestedUrl = null;
     _isNavigating = false;
+    _revision++;
     // Do not remove superseded URLs: queued callbacks may arrive even after
     // the new page completed or a user deliberately stopped its loading.
     return true;
@@ -85,6 +96,7 @@ class BrowserNavigationGuard {
   void cancelPending() {
     _pendingRequestedUrl = null;
     _isNavigating = false;
+    _revision++;
     // Preserve stale-event protection after stopLoading/main-frame errors.
   }
 
@@ -94,6 +106,7 @@ class BrowserNavigationGuard {
     _activeUrl = url;
     _pendingRequestedUrl = null;
     _isNavigating = true;
+    _revision++;
   }
 
   bool _matchesPendingRequest(String url) =>
@@ -104,9 +117,6 @@ class BrowserNavigationGuard {
     final previous = _activeUrl;
     if (previous != null && !_sameUrl(previous, nextUrl)) {
       _supersededUrls.add(previous);
-      if (_supersededUrls.length > _maxSupersededUrls) {
-        _supersededUrls.remove(_supersededUrls.first);
-      }
     }
   }
 
