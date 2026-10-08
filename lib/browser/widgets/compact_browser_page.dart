@@ -27,12 +27,18 @@ class CompactBrowserPage extends StatefulWidget {
   const CompactBrowserPage({
     super.key,
     this.webViewOverride,
+    this.webViewControllerOverride,
     this.androidChannel,
     this.downloadService = const DownloadService(),
     this.initialState = const BrowserState(),
   });
 
   final Widget? webViewOverride;
+
+  /// Test-only controller for exercising real navigation commands with a
+  /// fake platform history while using [webViewOverride].
+  final InAppWebViewController? webViewControllerOverride;
+
   final AndroidBrowserChannel? androidChannel;
   final DownloadService downloadService;
   final BrowserState initialState;
@@ -56,6 +62,7 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
   List<String> _searchHistory = <String>[];
   String? _pendingInitialUrl;
   int _webViewSeed = 0;
+  Future<void> _historyCommandQueue = Future<void>.value();
   String? _deferredStoppedUrl;
   int? _deferredStoppedRevision;
   final NetfreeBrowserPolicy _netfreePolicy = const NetfreeBrowserPolicy();
@@ -64,6 +71,7 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
   void initState() {
     super.initState();
     _state = widget.initialState;
+    _webViewController = widget.webViewControllerOverride;
     _navigationGuard = BrowserNavigationGuard(initialUrl: _state.currentUrl);
     _androidChannel = widget.androidChannel ?? AndroidBrowserChannel();
     _androidChannel.setOpenUrlHandler(_openIncomingUrl);
@@ -678,14 +686,99 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
     );
   }
 
-  Future<void> _goBack() async {
-    await _webViewController?.goBack();
-    await _refreshNavigationState();
+  Future<void> _goBack() => _queueHistoryNavigation(-1);
+
+  Future<void> _goForward() => _queueHistoryNavigation(1);
+
+  Future<void> _queueHistoryNavigation(int direction) {
+    // Each tap uses the history position after the preceding native command.
+    // Concurrent taps must not race against one another's old snapshots.
+    final next = _historyCommandQueue.then(
+      (_) => _navigateHistory(direction),
+    );
+    _historyCommandQueue = next.catchError((Object _) {
+      // Keep later history requests usable even if a platform call fails.
+    });
+    return _historyCommandQueue;
   }
 
-  Future<void> _goForward() async {
-    await _webViewController?.goForward();
-    await _refreshNavigationState();
+  Future<void> _navigateHistory(int direction) async {
+    final controller = _webViewController;
+    if (!mounted || controller == null || _isHomeUrl(_state.currentUrl)) {
+      return;
+    }
+
+    // Use the native back-forward list, not the app's previous URL (the
+    // latter is guarded against stale WebView callbacks).
+    WebHistory? history;
+    try {
+      history = await controller.getCopyBackForwardList();
+    } catch (_) {
+      // A disposed WebView can no longer navigate.
+      return;
+    }
+
+    final entries = history?.list;
+    final currentIndex = history?.currentIndex;
+    if (!mounted || _webViewController != controller ||
+        entries == null || currentIndex == null) {
+      return;
+    }
+    final targetIndex = currentIndex + direction;
+    if (targetIndex < 0 || targetIndex >= entries.length) {
+      await _refreshNavigationState();
+      return;
+    }
+
+    final targetUrl = entries[targetIndex].url?.toString();
+    if (targetUrl == null || targetUrl.isEmpty) {
+      await _refreshNavigationState();
+      return;
+    }
+
+    // A history destination is deliberately revisiting a previous URL.
+    // Authorize it *before* issuing goBack/goForward, otherwise the stale-
+    // event guard incorrectly discards this legitimate navigation.
+    final originalUrl = _state.currentUrl;
+    _navigationGuard.navigateTo(targetUrl);
+    _deferredStoppedUrl = null;
+    _deferredStoppedRevision = null;
+    setState(() {
+      _state = _state.copyWith(
+        currentUrl: targetUrl,
+        title: 'Net Flow',
+        isLoading: true,
+        progress: 0,
+        canGoBack: targetIndex > 0,
+        canGoForward: targetIndex < entries.length - 1,
+      );
+    });
+
+    try {
+      if (direction < 0) {
+        await controller.goBack();
+      } else {
+        await controller.goForward();
+      }
+    } catch (_) {
+      if (!mounted || _webViewController != controller ||
+          !_navigationGuard.isCurrentUrl(targetUrl)) {
+        return;
+      }
+      // Recover the actual page if the WebView was detached mid-command.
+      _navigationGuard.navigateTo(originalUrl);
+      _navigationGuard.cancelPending();
+      setState(() {
+        _state = _state.copyWith(
+          currentUrl: originalUrl,
+          isLoading: false,
+          progress: 0,
+        );
+      });
+    }
+    if (mounted && _webViewController == controller) {
+      await _refreshNavigationState();
+    }
   }
 
   Future<void> _reloadCurrent() async {
@@ -813,6 +906,7 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
       onWebViewCreated: (controller) {
         if (mounted && _webViewSeed == viewSeed) {
           _webViewController = controller;
+          unawaited(_refreshNavigationState());
         }
       },
       shouldOverrideUrlLoading: (_, action) => _handleNavigation(action),

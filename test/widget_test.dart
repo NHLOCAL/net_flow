@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:net_flow/browser/models/browser_state.dart';
 import 'package:net_flow/browser/services/android_browser_channel.dart';
 import 'package:net_flow/browser/widgets/compact_browser_page.dart';
@@ -28,6 +29,57 @@ class FakeAndroidBrowserChannel extends AndroidBrowserChannel {
 
   @override
   Future<bool> isDefaultBrowserRoleHeld() async => false;
+}
+
+
+class FakeHistoryWebViewController extends Fake
+    implements InAppWebViewController {
+  FakeHistoryWebViewController({
+    required this.urls,
+    required this.currentIndex,
+  });
+
+  final List<String> urls;
+  int currentIndex;
+  int backCalls = 0;
+  int forwardCalls = 0;
+
+  @override
+  Future<WebHistory?> getCopyBackForwardList() async => WebHistory(
+        currentIndex: currentIndex,
+        list: [
+          for (var i = 0; i < urls.length; i++)
+            WebHistoryItem(index: i, url: WebUri(urls[i])),
+        ],
+      );
+
+  @override
+  Future<void> goBack() async {
+    backCalls++;
+    if (currentIndex > 0) {
+      currentIndex--;
+    }
+  }
+
+  @override
+  Future<void> goForward() async {
+    forwardCalls++;
+    if (currentIndex < urls.length - 1) {
+      currentIndex++;
+    }
+  }
+
+  @override
+  Future<bool> canGoBack() async => currentIndex > 0;
+
+  @override
+  Future<bool> canGoForward() async => currentIndex < urls.length - 1;
+
+  @override
+  Future<WebUri?> getUrl() async => WebUri(urls[currentIndex]);
+
+  @override
+  Future<String?> getTitle() async => 'Page ${currentIndex + 1}';
 }
 
 void main() {
@@ -470,4 +522,138 @@ void main() {
     expect(find.byKey(const Key('fake-webview')), findsOneWidget);
     expect(find.byKey(const Key('browser-home-search-field')), findsNothing);
   });
+  testWidgets('back and forward follow the native WebView history', (
+    tester,
+  ) async {
+    final controller = FakeHistoryWebViewController(
+      urls: const [
+        'https://one.test/',
+        'https://two.test/',
+        'https://three.test/',
+      ],
+      currentIndex: 2,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CompactBrowserPage(
+          androidChannel: FakeAndroidBrowserChannel(),
+          webViewOverride: const SizedBox(key: Key('fake-webview')),
+          webViewControllerOverride: controller,
+          initialState: const BrowserState(
+            currentUrl: 'https://three.test/',
+            canGoBack: true,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('browser-back-button')));
+    await tester.pump();
+    expect(controller.currentIndex, 1);
+    expect(controller.backCalls, 1);
+    expect(
+      tester.widget<InkWell>(find.descendant(
+        of: find.byKey(const Key('browser-forward-button')),
+        matching: find.byType(InkWell),
+      )).onTap,
+      isNotNull,
+    );
+
+    await tester.tap(find.byKey(const Key('browser-back-button')));
+    await tester.pump();
+    expect(controller.currentIndex, 0);
+    expect(
+      tester.widget<InkWell>(find.descendant(
+        of: find.byKey(const Key('browser-back-button')),
+        matching: find.byType(InkWell),
+      )).onTap,
+      isNull,
+    );
+
+    await tester.tap(find.byKey(const Key('browser-forward-button')));
+    await tester.pump();
+    expect(controller.currentIndex, 1);
+    expect(controller.forwardCalls, 1);
+    expect(
+      tester.widget<InkWell>(find.descendant(
+        of: find.byKey(const Key('browser-back-button')),
+        matching: find.byType(InkWell),
+      )).onTap,
+      isNotNull,
+    );
+  });
+
+  testWidgets('rapid back taps are processed in order', (tester) async {
+    final controller = FakeHistoryWebViewController(
+      urls: const [
+        'https://one.test/',
+        'https://two.test/',
+        'https://three.test/',
+      ],
+      currentIndex: 2,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CompactBrowserPage(
+          androidChannel: FakeAndroidBrowserChannel(),
+          webViewOverride: const SizedBox(key: Key('fake-webview')),
+          webViewControllerOverride: controller,
+          initialState: const BrowserState(
+            currentUrl: 'https://three.test/',
+            canGoBack: true,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('browser-back-button')));
+    await tester.tap(find.byKey(const Key('browser-back-button')));
+    await tester.pump();
+    expect(controller.currentIndex, 0);
+    expect(controller.backCalls, 2);
+  });
+
+  testWidgets('no history navigation happens outside native boundaries', (
+    tester,
+  ) async {
+    final controller = FakeHistoryWebViewController(
+      urls: const ['https://only.test/'],
+      currentIndex: 0,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CompactBrowserPage(
+          androidChannel: FakeAndroidBrowserChannel(),
+          webViewOverride: const SizedBox(key: Key('fake-webview')),
+          webViewControllerOverride: controller,
+          initialState: const BrowserState(
+            currentUrl: 'https://only.test/',
+            canGoBack: false,
+            canGoForward: false,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<InkWell>(find.descendant(
+        of: find.byKey(const Key('browser-back-button')),
+        matching: find.byType(InkWell),
+      )).onTap,
+      isNull,
+    );
+    expect(
+      tester.widget<InkWell>(find.descendant(
+        of: find.byKey(const Key('browser-forward-button')),
+        matching: find.byType(InkWell),
+      )).onTap,
+      isNull,
+    );
+    expect(controller.backCalls, 0);
+    expect(controller.forwardCalls, 0);
+  });
+
 }

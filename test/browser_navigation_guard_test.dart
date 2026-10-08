@@ -226,6 +226,35 @@ void main() {
     expect(guard.acceptVisitedUrl('https://old.test/'), isFalse);
   });
 
+  test('explicit backward history navigation reauthorizes an old URL', () {
+    final guard = BrowserNavigationGuard(initialUrl: 'https://a.test/');
+    guard.navigateTo('https://b.test/');
+    expect(guard.acceptLoadStart('https://b.test/'), isTrue);
+    expect(guard.acceptLoadStop('https://b.test/'), isTrue);
+    expect(guard.acceptLoadStart('https://a.test/'), isFalse);
+
+    guard.navigateTo('https://a.test/');
+    expect(guard.isCurrentUrl('https://a.test/'), isTrue);
+    expect(guard.acceptLoadStart('https://a.test/'), isTrue);
+    expect(guard.acceptLoadStop('https://a.test/'), isTrue);
+  });
+
+  test('forward navigation restores a previously visited destination', () {
+    final guard = BrowserNavigationGuard(initialUrl: 'https://a.test/');
+    guard.navigateTo('https://b.test/');
+    expect(guard.acceptLoadStart('https://b.test/'), isTrue);
+    expect(guard.acceptLoadStop('https://b.test/'), isTrue);
+
+    guard.navigateTo('https://a.test/');
+    expect(guard.acceptLoadStart('https://a.test/'), isTrue);
+    expect(guard.acceptLoadStop('https://a.test/'), isTrue);
+
+    guard.navigateTo('https://b.test/');
+    expect(guard.acceptLoadStart('https://b.test/'), isTrue);
+    expect(guard.acceptLoadStop('https://b.test/'), isTrue);
+    expect(guard.isCurrentUrl('https://b.test/'), isTrue);
+  });
+
   test('reset and cancellation do not leave a pending URL', () {
     final guard = BrowserNavigationGuard(initialUrl: 'https://a.test/');
     guard.navigateTo('https://b.test/');
