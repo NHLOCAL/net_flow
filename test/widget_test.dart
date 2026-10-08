@@ -45,6 +45,7 @@ class FakeHistoryWebViewController extends Fake
   int backCalls = 0;
   int forwardCalls = 0;
   Completer<bool>? pendingBackAvailability;
+  bool nativeIsLoading = false;
 
   void visit(String url) {
     urls.removeRange(currentIndex + 1, urls.length);
@@ -104,6 +105,9 @@ class FakeHistoryWebViewController extends Fake
 
   @override
   Future<bool> canGoForward() async => currentIndex < urls.length - 1;
+
+  @override
+  Future<bool> isLoading() async => nativeIsLoading;
 
   @override
   Future<WebUri?> getUrl() async => WebUri(urls[currentIndex]);
@@ -1031,6 +1035,69 @@ void main() {
     ) as List<dynamic>;
     expect((bookmarks.first as Map<String, dynamic>)['url'],
         'https://intended.example/article');
+  });
+
+  testWidgets('superseded load-stop does not clear a newer page loading',
+      (tester) async {
+    final events = BrowserWebViewTestEvents();
+    final controller = FakeHistoryWebViewController(
+      urls: <String>['https://new.example/'],
+      currentIndex: 0,
+    );
+    await tester.pumpWidget(MaterialApp(
+      home: CompactBrowserPage(
+        androidChannel: FakeAndroidBrowserChannel(),
+        webViewOverride: const SizedBox(key: Key('fake-webview')),
+        webViewControllerOverride: controller,
+        webViewTestEvents: events,
+        initialState: const BrowserState(
+          currentUrl: 'https://new.example/',
+          isLoading: true,
+        ),
+      ),
+    ));
+    await tester.pump(const Duration(milliseconds: 200));
+
+    events.loadStarted?.call('https://new.example/');
+    events.loadStopped?.call('https://old.example/');
+    await tester.pump();
+    expect(find.byTooltip('עצור'), findsOneWidget);
+
+    events.loadStopped?.call('https://new.example/');
+    await tester.pump();
+    expect(find.byTooltip('רענן'), findsOneWidget);
+  });
+
+  testWidgets('same-URL reload ignores error while native loading continues',
+      (tester) async {
+    final events = BrowserWebViewTestEvents();
+    final controller = FakeHistoryWebViewController(
+      urls: <String>['https://page.example/'],
+      currentIndex: 0,
+    )..nativeIsLoading = true;
+    await tester.pumpWidget(MaterialApp(
+      home: CompactBrowserPage(
+        androidChannel: FakeAndroidBrowserChannel(),
+        webViewOverride: const SizedBox(key: Key('fake-webview')),
+        webViewControllerOverride: controller,
+        webViewTestEvents: events,
+        initialState: const BrowserState(
+          currentUrl: 'https://page.example/',
+          isLoading: true,
+        ),
+      ),
+    ));
+    await tester.pump(const Duration(milliseconds: 200));
+
+    events.loadStarted?.call('https://page.example/');
+    events.mainFrameError?.call('https://page.example/');
+    await tester.pump();
+    expect(find.byTooltip('עצור'), findsOneWidget);
+
+    controller.nativeIsLoading = false;
+    events.mainFrameError?.call('https://page.example/');
+    await tester.pump();
+    expect(find.byTooltip('רענן'), findsOneWidget);
   });
 
 }

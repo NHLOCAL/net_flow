@@ -109,9 +109,21 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
     if (events != null) {
       events.loadStarted = _handlePageLoadStart;
       events.visitedHistory = _handleVisitedHistory;
-      events.loadStopped = _handlePageLoadStop;
+      events.loadStopped = (url) {
+        final controller = _webViewController;
+        if (controller != null) {
+          unawaited(_verifyPageLoadStop(controller, url, _webViewSeed));
+        }
+      };
       events.titleChanged = _handlePageTitleChanged;
-      events.mainFrameError = _handleMainFrameError;
+      events.mainFrameError = (url) {
+        final controller = _webViewController;
+        if (controller != null) {
+          unawaited(_verifyNativeMainFrameError(
+            controller, url, _webViewSeed,
+          ));
+        }
+      };
     }
     unawaited(_initialize());
   }
@@ -325,22 +337,78 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
     });
   }
 
-  bool _isCurrentFrameUrl(String url) {
-    if (url == _state.currentUrl) {
+  bool _urlsMatch(String first, String second) {
+    if (first == second) {
       return true;
     }
-    final current = Uri.tryParse(_state.currentUrl);
-    final failed = Uri.tryParse(url);
-    if (current == null || failed == null) {
+    final left = Uri.tryParse(first);
+    final right = Uri.tryParse(second);
+    if (left == null || right == null) {
       return false;
     }
-    return current.scheme == failed.scheme &&
-        current.host == failed.host &&
-        current.port == failed.port &&
-        (current.path.isEmpty ? '/' : current.path) ==
-            (failed.path.isEmpty ? '/' : failed.path) &&
-        current.query == failed.query &&
-        current.fragment == failed.fragment;
+    return left.scheme == right.scheme &&
+        left.host == right.host &&
+        left.port == right.port &&
+        (left.path.isEmpty ? '/' : left.path) ==
+            (right.path.isEmpty ? '/' : right.path) &&
+        left.query == right.query &&
+        left.fragment == right.fragment;
+  }
+
+  bool _isCurrentFrameUrl(String url) =>
+      _urlsMatch(_state.currentUrl, url);
+
+  Future<void> _verifyPageLoadStop(
+    InAppWebViewController controller,
+    String stoppedUrl,
+    int expectedSeed,
+  ) async {
+    try {
+      // The callback may belong to an older load on this reused controller.
+      // Compare with the page the native WebView is displaying now, not with
+      // the originally requested URL (redirects and link clicks are valid).
+      final liveUrl = await controller.getUrl();
+      if (!mounted ||
+          _webViewController != controller ||
+          _webViewSeed != expectedSeed) {
+        return;
+      }
+      if (liveUrl != null &&
+          !_urlsMatch(liveUrl.toString(), stoppedUrl)) {
+        return;
+      }
+      _handlePageLoadStop(liveUrl?.toString() ?? stoppedUrl);
+    } catch (_) {
+      // The platform view may have been removed by Home during navigation.
+    }
+  }
+
+  Future<void> _verifyNativeMainFrameError(
+    InAppWebViewController controller,
+    String failedUrl,
+    int expectedSeed,
+  ) async {
+    if (!mounted || !_isCurrentFrameUrl(failedUrl)) {
+      return;
+    }
+    final revision = _webViewEventRevision;
+    try {
+      // A canceled request from an earlier reload may have the same URL as
+      // the replacement. Keep the newer spinner active while native WebView
+      // reports that its current request is still loading.
+      final stillLoading = await controller.isLoading();
+      if (!mounted ||
+          _webViewController != controller ||
+          _webViewSeed != expectedSeed ||
+          _webViewEventRevision != revision ||
+          stillLoading) {
+        return;
+      }
+      _handleMainFrameError(failedUrl);
+    } catch (_) {
+      // If the native state cannot be checked, do not let a potentially
+      // stale error from a disposed controller alter the current page.
+    }
   }
 
   void _handleMainFrameError(String failedUrl) {
@@ -1016,11 +1084,15 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
         }
         _handlePageTitleChanged(title);
       },
-      onLoadStop: (_, url) {
+      onLoadStop: (controller, url) {
         if (!mounted || viewSeed != _webViewSeed) {
           return;
         }
-        _handlePageLoadStop(url?.toString() ?? _state.currentUrl);
+        unawaited(_verifyPageLoadStop(
+          controller,
+          url?.toString() ?? _state.currentUrl,
+          viewSeed,
+        ));
       },
       onUpdateVisitedHistory: (_, url, __) {
         if (!mounted || viewSeed != _webViewSeed || url == null) {
@@ -1028,13 +1100,19 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
         }
         _handleVisitedHistory(url.toString());
       },
-      onReceivedError: (_, request, __) {
+      onReceivedError: (controller, request, error) {
         if (!mounted ||
             viewSeed != _webViewSeed ||
-            request.isForMainFrame != true) {
+            request.isForMainFrame != true ||
+            error.type == WebResourceErrorType.CANCELLED ||
+            error.type == WebResourceErrorType.CONNECTION_ABORTED) {
           return;
         }
-        _handleMainFrameError(request.url.toString());
+        unawaited(_verifyNativeMainFrameError(
+          controller,
+          request.url.toString(),
+          viewSeed,
+        ));
       },
       onDownloadStartRequest: (_, request) => _handleDownload(request),
       onPermissionRequest: (_, request) => _handlePermissionRequest(request),
