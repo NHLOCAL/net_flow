@@ -54,6 +54,17 @@ class FakeHistoryWebViewController extends Fake
       );
 
   @override
+  Future<void> loadUrl({required URLRequest urlRequest}) async {
+    final newUrl = urlRequest.url?.toString();
+    if (newUrl == null) {
+      return;
+    }
+    urls.removeRange(currentIndex + 1, urls.length);
+    urls.add(newUrl);
+    currentIndex = urls.length - 1;
+  }
+
+  @override
   Future<void> goBack() async {
     backCalls++;
     if (currentIndex > 0) {
@@ -582,6 +593,49 @@ void main() {
       )).onTap,
       isNotNull,
     );
+  });
+
+  testWidgets('back reopens an intentionally revisited older page', (
+    tester,
+  ) async {
+    final controller = FakeHistoryWebViewController(
+      urls: <String>[
+        'https://one.test/',
+        'https://two.test/',
+      ],
+      currentIndex: 1,
+    );
+    final channel = FakeAndroidBrowserChannel();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CompactBrowserPage(
+          androidChannel: channel,
+          webViewOverride: const SizedBox(key: Key('fake-webview')),
+          webViewControllerOverride: controller,
+          initialState: const BrowserState(
+            currentUrl: 'https://two.test/',
+            canGoBack: true,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // This address-bar navigation marks page two as superseded.
+    await channel.openUrlHandler?.call('https://three.test/');
+    await tester.pump();
+    expect(controller.currentIndex, 2);
+
+    // Back must explicitly reauthorize the old URL, not reject it as stale.
+    await tester.tap(find.byKey(const Key('browser-back-button')));
+    await tester.pump();
+    expect(controller.currentIndex, 1);
+    expect(controller.backCalls, 1);
+
+    await tester.tap(find.byKey(const Key('browser-forward-button')));
+    await tester.pump();
+    expect(controller.currentIndex, 2);
+    expect(controller.forwardCalls, 1);
   });
 
   testWidgets('rapid back taps are processed in order', (tester) async {
