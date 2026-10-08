@@ -72,6 +72,27 @@ void main() {
     expect((image.image as AssetImage).assetName, 'assets/icon_launcher.png');
   });
 
+  testWidgets('home does not overflow in a short viewport', (tester) async {
+    tester.view.physicalSize = const Size(320, 250);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CompactBrowserPage(
+          androidChannel: FakeAndroidBrowserChannel(),
+          webViewOverride: const SizedBox(key: Key('fake-webview')),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('browser-home-app-icon')), findsOneWidget);
+    expect(find.byKey(const Key('browser-home-search-field')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('home search field uses a sharp linear style', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
