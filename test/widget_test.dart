@@ -418,4 +418,3 @@ void main() {
     expect(find.byKey(const Key('browser-home-search-field')), findsNothing);
   });
 }
-}
