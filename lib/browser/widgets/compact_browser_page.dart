@@ -379,6 +379,20 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
     }
   }
 
+  void _showBrowserSnackBar(String message) {
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        // Leave the browser's bottom 48px toolbar fully tappable.
+        margin: const EdgeInsets.fromLTRB(12, 0, 12, 70),
+      ),
+    );
+  }
+
   Future<void> _openExternal(String url) async {
     var opened = false;
     try {
@@ -390,9 +404,7 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
       // Missing or unsupported Android intent handlers are not page errors.
     }
     if (!opened && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('אין אפליקציה זמינה לפתיחת הקישור')),
-      );
+      _showBrowserSnackBar('אין אפליקציה זמינה לפתיחת הקישור');
     }
   }
 
@@ -420,15 +432,11 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
         fileName: request.suggestedFilename,
       );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('ההורדה החלה')),
-        );
+        _showBrowserSnackBar('ההורדה החלה');
       }
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('ההורדה נכשלה: $error')),
-        );
+        _showBrowserSnackBar('ההורדה נכשלה: $error');
       }
     }
   }
@@ -719,9 +727,7 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
     await _bookmarkStore?.save(next);
     if (mounted) {
       setState(() => _bookmarks = next);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('הסימניה "$title" נשמרה')),
-      );
+      _showBrowserSnackBar('הסימניה "$title" נשמרה');
     }
   }
 
