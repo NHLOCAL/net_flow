@@ -1,5 +1,3 @@
-import 'browser_error.dart';
-
 class BrowserState {
   const BrowserState({
     this.currentUrl = 'netflow://home',
@@ -8,7 +6,6 @@ class BrowserState {
     this.isLoading = false,
     this.canGoBack = false,
     this.canGoForward = false,
-    this.error,
   });
 
   final String currentUrl;
@@ -17,7 +14,6 @@ class BrowserState {
   final bool isLoading;
   final bool canGoBack;
   final bool canGoForward;
-  final BrowserError? error;
 
   BrowserState copyWith({
     String? currentUrl,
@@ -26,8 +22,6 @@ class BrowserState {
     bool? isLoading,
     bool? canGoBack,
     bool? canGoForward,
-    BrowserError? error,
-    bool clearError = false,
   }) {
     return BrowserState(
       currentUrl: currentUrl ?? this.currentUrl,
@@ -36,7 +30,6 @@ class BrowserState {
       isLoading: isLoading ?? this.isLoading,
       canGoBack: canGoBack ?? this.canGoBack,
       canGoForward: canGoForward ?? this.canGoForward,
-      error: clearError ? null : error ?? this.error,
     );
   }
 }

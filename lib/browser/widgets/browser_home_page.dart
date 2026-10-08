@@ -94,6 +94,16 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                     child: Column(
                       children: [
                         const Spacer(flex: 2),
+                        Image.asset(
+                          'assets/icon_launcher.png',
+                          key: const Key('browser-home-app-icon'),
+                          width: compact ? 64 : 84,
+                          height: compact ? 64 : 84,
+                          fit: BoxFit.contain,
+                          filterQuality: FilterQuality.medium,
+                          semanticLabel: 'סמל Net Flow',
+                        ),
+                        SizedBox(height: compact ? 10 : 14),
                         Text(
                           'Net Flow',
                           style: Theme.of(context)

@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:net_flow/browser/models/browser_error.dart';
 import 'package:net_flow/browser/models/browser_state.dart';
 import 'package:net_flow/browser/services/android_browser_channel.dart';
 import 'package:net_flow/browser/widgets/compact_browser_page.dart';
@@ -53,6 +52,24 @@ void main() {
     expect(find.byKey(const Key('fake-webview')), findsNothing);
     expect(find.byKey(const Key('browser-bottom-bar')), findsOneWidget);
     expect(find.byKey(const Key('browser-menu-button')), findsOneWidget);
+  });
+
+  testWidgets('home displays the packaged app icon', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CompactBrowserPage(
+          androidChannel: FakeAndroidBrowserChannel(),
+          webViewOverride: const SizedBox(key: Key('fake-webview')),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final image = tester.widget<Image>(
+      find.byKey(const Key('browser-home-app-icon')),
+    );
+    expect(image.image, isA<AssetImage>());
+    expect((image.image as AssetImage).assetName, 'assets/icon_launcher.png');
   });
 
   testWidgets('home search field uses a sharp linear style', (tester) async {
@@ -330,23 +347,24 @@ void main() {
     expect(find.byKey(const Key('browser-home-search-field')), findsNothing);
   });
 
-  testWidgets('home button leaves an error page and shows home search', (
+  testWidgets('home button works while a page is still loading', (
     tester,
   ) async {
     await tester.pumpWidget(
       MaterialApp(
         home: CompactBrowserPage(
           androidChannel: FakeAndroidBrowserChannel(),
-          initialState: BrowserState(
+          initialState: const BrowserState(
             currentUrl: 'https://example.com',
-            error: BrowserError.blank(url: 'https://example.com'),
+            isLoading: true,
           ),
           webViewOverride: const SizedBox(key: Key('fake-webview')),
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await tester.pump();
 
+    expect(find.byKey(const Key('fake-webview')), findsOneWidget);
     await tester.tap(find.byKey(const Key('browser-home-button')));
     await tester.pumpAndSettle();
 
@@ -354,7 +372,7 @@ void main() {
     expect(find.byKey(const Key('fake-webview')), findsNothing);
   });
 
-  testWidgets('new search leaves an error page and opens browser surface', (
+  testWidgets('a new search works while the previous site loads', (
     tester,
   ) async {
     final channel = FakeAndroidBrowserChannel();
@@ -362,20 +380,42 @@ void main() {
       MaterialApp(
         home: CompactBrowserPage(
           androidChannel: channel,
-          initialState: BrowserState(
+          initialState: const BrowserState(
             currentUrl: 'https://example.com',
-            error: BrowserError.blank(url: 'https://example.com'),
+            isLoading: true,
           ),
           webViewOverride: const SizedBox(key: Key('fake-webview')),
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await tester.pump();
 
     await channel.openUrlHandler?.call('new search');
     await tester.pump();
 
     expect(find.byKey(const Key('fake-webview')), findsOneWidget);
-    expect(find.text('הדף נטען ריק'), findsNothing);
+    expect(find.byKey(const Key('browser-bottom-bar')), findsOneWidget);
   });
+
+  testWidgets('slow loads remain in WebView past 12 seconds', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CompactBrowserPage(
+          androidChannel: FakeAndroidBrowserChannel(
+            initialUrl: 'https://example.com',
+          ),
+          webViewOverride: const SizedBox(key: Key('fake-webview')),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byKey(const Key('fake-webview')), findsOneWidget);
+    await tester.pump(const Duration(seconds: 13));
+
+    expect(find.byKey(const Key('fake-webview')), findsOneWidget);
+    expect(find.byKey(const Key('browser-home-search-field')), findsNothing);
+  });
+}
 }
