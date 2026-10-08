@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -43,15 +44,23 @@ class FakeHistoryWebViewController extends Fake
   int currentIndex;
   int backCalls = 0;
   int forwardCalls = 0;
+  Completer<WebHistory?>? pendingHistoryQuery;
 
   @override
-  Future<WebHistory?> getCopyBackForwardList() async => WebHistory(
-        currentIndex: currentIndex,
-        list: [
-          for (var i = 0; i < urls.length; i++)
-            WebHistoryItem(index: i, url: WebUri(urls[i])),
-        ],
-      );
+  Future<WebHistory?> getCopyBackForwardList() async {
+    final delayed = pendingHistoryQuery;
+    if (delayed != null) {
+      pendingHistoryQuery = null;
+      return delayed.future;
+    }
+    return WebHistory(
+      currentIndex: currentIndex,
+      list: [
+        for (var i = 0; i < urls.length; i++)
+          WebHistoryItem(index: i, url: WebUri(urls[i])),
+      ],
+    );
+  }
 
   @override
   Future<void> loadUrl({
@@ -675,6 +684,59 @@ void main() {
     await tester.pump();
     expect(controller.currentIndex, 0);
     expect(controller.backCalls, 2);
+  });
+
+  testWidgets('a new address cancels a pending back command', (
+    tester,
+  ) async {
+    final controller = FakeHistoryWebViewController(
+      urls: <String>[
+        'https://one.test/',
+        'https://two.test/',
+        'https://three.test/',
+      ],
+      currentIndex: 2,
+    );
+    final channel = FakeAndroidBrowserChannel();
+    final pending = Completer<WebHistory?>();
+    controller.pendingHistoryQuery = pending;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CompactBrowserPage(
+          androidChannel: channel,
+          webViewOverride: const SizedBox(key: Key('fake-webview')),
+          webViewControllerOverride: controller,
+          initialState: const BrowserState(
+            currentUrl: 'https://three.test/',
+            canGoBack: true,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('browser-back-button')));
+    await tester.pump();
+
+    // Navigate to a new address while the native history snapshot is pending.
+    await channel.openUrlHandler?.call('https://new.test/');
+    await tester.pump();
+    expect(controller.currentIndex, 3);
+
+    pending.complete(WebHistory(
+      currentIndex: 2,
+      list: [
+        WebHistoryItem(url: WebUri('https://one.test/')),
+        WebHistoryItem(url: WebUri('https://two.test/')),
+        WebHistoryItem(url: WebUri('https://three.test/')),
+      ],
+    ));
+    await tester.pump();
+    await tester.pump();
+
+    expect(controller.backCalls, 0);
+    expect(controller.currentIndex, 3);
   });
 
   testWidgets('no history navigation happens outside native boundaries', (

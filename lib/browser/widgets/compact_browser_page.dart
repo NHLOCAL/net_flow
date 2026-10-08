@@ -63,6 +63,9 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
   String? _pendingInitialUrl;
   int _webViewSeed = 0;
   Future<void> _historyCommandQueue = Future<void>.value();
+  // Cancels queued or pending history commands whenever the user explicitly
+  // navigates to another address, home, refresh or stop.
+  int _explicitNavigationGeneration = 0;
   String? _pendingHistoryTarget;
   bool _historyDocumentStarted = false;
   String? _deferredStoppedUrl;
@@ -140,6 +143,7 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
     if (!mounted) {
       return;
     }
+    _explicitNavigationGeneration++;
     _pendingHistoryTarget = null;
     _historyDocumentStarted = false;
     _navigationGuard.navigateTo(url);
@@ -185,6 +189,7 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
       return;
     }
     // Show home immediately even if the remote site is still loading.
+    _explicitNavigationGeneration++;
     _pendingHistoryTarget = null;
     _historyDocumentStarted = false;
     _navigationGuard.resetTo(_settings.homeUrl);
@@ -724,8 +729,11 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
   Future<void> _queueHistoryNavigation(int direction) {
     // Each tap uses the history position after the preceding native command.
     // Concurrent taps must not race against one another's old snapshots.
+    // Remember the generation before queuing so that opening a new address
+    // can invalidate all queued history commands.
+    final generation = _explicitNavigationGeneration;
     final next = _historyCommandQueue.then(
-      (_) => _navigateHistory(direction),
+      (_) => _navigateHistory(direction, generation),
     );
     _historyCommandQueue = next.catchError((Object _) {
       // Keep later history requests usable even if a platform call fails.
@@ -733,11 +741,15 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
     return _historyCommandQueue;
   }
 
-  Future<void> _navigateHistory(int direction) async {
+  Future<void> _navigateHistory(int direction, int generation) async {
     final controller = _webViewController;
-    if (!mounted || controller == null || _isHomeUrl(_state.currentUrl)) {
+    if (!mounted ||
+        controller == null ||
+        generation != _explicitNavigationGeneration ||
+        _isHomeUrl(_state.currentUrl)) {
       return;
     }
+    final startingUrl = _state.currentUrl;
 
     // Use the native back-forward list, not the app's previous URL (the
     // latter is guarded against stale WebView callbacks).
@@ -751,8 +763,12 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
 
     final entries = history?.list;
     final currentIndex = history?.currentIndex;
-    if (!mounted || _webViewController != controller ||
-        entries == null || currentIndex == null) {
+    if (!mounted ||
+        _webViewController != controller ||
+        generation != _explicitNavigationGeneration ||
+        !BrowserNavigationGuard.urlsMatch(_state.currentUrl, startingUrl) ||
+        entries == null ||
+        currentIndex == null) {
       return;
     }
     final targetIndex = currentIndex + direction;
@@ -828,6 +844,7 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
   }
 
   Future<void> _reloadCurrent() async {
+    _explicitNavigationGeneration++;
     final controller = _webViewController;
     if (controller != null) {
       try {
@@ -846,6 +863,7 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
   }
 
   Future<void> _stopLoading() async {
+    _explicitNavigationGeneration++;
     try {
       await _webViewController?.stopLoading();
     } catch (_) {
