@@ -15,7 +15,6 @@ import '../services/android_browser_channel.dart';
 import '../services/bookmark_store.dart';
 import '../services/download_service.dart';
 import '../services/netfree_browser_policy.dart';
-import '../services/browser_navigation_guard.dart';
 import '../services/search_history_store.dart';
 import '../services/settings_store.dart';
 import '../services/site_permission_store.dart';
@@ -23,11 +22,31 @@ import '../services/url_resolver.dart';
 import 'browser_home_page.dart';
 import 'browser_menu_sheet.dart';
 
+
+/// Test seam that sends the same events emitted by a native InAppWebView.
+/// This exposes callback-to-toolbar/bookmark integration to widget tests
+/// instead of testing only a disconnected navigation state machine.
+@visibleForTesting
+class BrowserWebViewTestEvents {
+  void Function(String url)? loadStarted;
+  void Function(String url)? visitedHistory;
+  void Function(String url)? loadStopped;
+  void Function(String? title)? titleChanged;
+
+  void clear() {
+    loadStarted = null;
+    visitedHistory = null;
+    loadStopped = null;
+    titleChanged = null;
+  }
+}
+
 class CompactBrowserPage extends StatefulWidget {
   const CompactBrowserPage({
     super.key,
     this.webViewOverride,
     this.webViewControllerOverride,
+    this.webViewTestEvents,
     this.androidChannel,
     this.downloadService = const DownloadService(),
     this.initialState = const BrowserState(),
@@ -38,6 +57,9 @@ class CompactBrowserPage extends StatefulWidget {
   /// Test-only controller for exercising real navigation commands with a
   /// fake platform history while using [webViewOverride].
   final InAppWebViewController? webViewControllerOverride;
+
+  /// Supplies synthetic native navigation events in widget regression tests.
+  final BrowserWebViewTestEvents? webViewTestEvents;
 
   final AndroidBrowserChannel? androidChannel;
   final DownloadService downloadService;
@@ -56,7 +78,6 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
   SitePermissionStore? _permissionStore;
 
   late BrowserState _state;
-  late final BrowserNavigationGuard _navigationGuard;
   BrowserSettings _settings = const BrowserSettings.defaults();
   List<Bookmark> _bookmarks = <Bookmark>[];
   List<String> _searchHistory = <String>[];
@@ -66,10 +87,9 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
   // Cancels queued or pending history commands whenever the user explicitly
   // navigates to another address, home, refresh or stop.
   int _explicitNavigationGeneration = 0;
-  String? _pendingHistoryTarget;
-  bool _historyDocumentStarted = false;
-  String? _deferredStoppedUrl;
-  int? _deferredStoppedRevision;
+  // Invalidates asynchronous native URL/history snapshots whenever a new
+  // WebView navigation event arrives.
+  int _webViewEventRevision = 0;
   final NetfreeBrowserPolicy _netfreePolicy = const NetfreeBrowserPolicy();
 
   @override
@@ -77,10 +97,22 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
     super.initState();
     _state = widget.initialState;
     _webViewController = widget.webViewControllerOverride;
-    _navigationGuard = BrowserNavigationGuard(initialUrl: _state.currentUrl);
     _androidChannel = widget.androidChannel ?? AndroidBrowserChannel();
     _androidChannel.setOpenUrlHandler(_openIncomingUrl);
+    final events = widget.webViewTestEvents;
+    if (events != null) {
+      events.loadStarted = _handlePageLoadStart;
+      events.visitedHistory = _handleVisitedHistory;
+      events.loadStopped = _handlePageLoadStop;
+      events.titleChanged = _handlePageTitleChanged;
+    }
     unawaited(_initialize());
+  }
+
+  @override
+  void dispose() {
+    widget.webViewTestEvents?.clear();
+    super.dispose();
   }
 
   Future<void> _initialize() async {
@@ -131,13 +163,10 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
   }
 
   void _invalidateHistoryRequests() {
-    // Any queued work from the prior address belongs to a different
-    // generation. Replace the queue rather than chaining new taps behind a
-    // platform history query that may never complete.
+    // An old Back/Forward call must not run after a new address or Home.
     _explicitNavigationGeneration++;
     _historyCommandQueue = Future<void>.value();
-    _pendingHistoryTarget = null;
-    _historyDocumentStarted = false;
+    _webViewEventRevision++;
   }
 
   Future<void> _loadUrl(String input) async {
@@ -154,7 +183,6 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
       return;
     }
     _invalidateHistoryRequests();
-    _navigationGuard.navigateTo(url);
     setState(() {
       _pendingInitialUrl = controller == null ? url : null;
       if (controller == null) {
@@ -198,7 +226,6 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
     }
     // Show home immediately even if the remote site is still loading.
     _invalidateHistoryRequests();
-    _navigationGuard.resetTo(_settings.homeUrl);
     setState(() {
       _pendingInitialUrl = null;
       _webViewSeed++;
@@ -219,63 +246,41 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
     }
   }
 
-  void _applyLoadStarted(String url) {
-    if (!mounted) {
-      return;
-    }
+
+  void _handlePageLoadStart(String url) {
+    if (!mounted) return;
+
+    // Accept actual WebView transitions, including HTTP 30x redirects and
+    // normal link clicks. A requested google.com URL may legitimately turn
+    // into www.google.com or an entirely different redirected domain.
+    _webViewEventRevision++;
     setState(() {
       _pendingInitialUrl = null;
       _state = _state.copyWith(
         currentUrl: url,
+        title: 'Net Flow',
         isLoading: true,
         progress: 0,
       );
     });
+    unawaited(_refreshNavigationState());
   }
 
-  Future<void> _verifySupersededLoadStart(
-    InAppWebViewController controller,
-    String url,
-  ) async {
-    final revision = _navigationGuard.revision;
-    try {
-      final currentUrl = await controller.getUrl();
-      if (!mounted ||
-          _webViewController != controller ||
-          _navigationGuard.revision != revision ||
-          !_state.isLoading ||
-          currentUrl == null ||
-          !BrowserNavigationGuard.urlsMatch(currentUrl.toString(), url)) {
-        return;
-      }
+  void _handleVisitedHistory(String url) {
+    if (!mounted) return;
 
-      final alreadyStopped =
-          _deferredStoppedRevision == revision &&
-          _deferredStoppedUrl != null &&
-          BrowserNavigationGuard.urlsMatch(_deferredStoppedUrl!, url);
-      if (!_navigationGuard.acceptVerifiedLoadStart(url)) {
-        return;
-      }
-
-      if (alreadyStopped && _navigationGuard.acceptLoadStop(url)) {
-        await _completeLoadStop(url);
-      } else {
-        if (_pendingHistoryTarget != null) {
-          _historyDocumentStarted = true;
-        }
-        _applyLoadStarted(url);
-      }
-    } catch (_) {
-      // Do not let a delayed verification restart a stopped or newer load.
-    }
+    // Android emits this for normal navigations AND SPA history/popstate.
+    // It must never be filtered because the URL was visited previously.
+    _webViewEventRevision++;
+    setState(() {
+      _state = _state.copyWith(currentUrl: url);
+    });
+    unawaited(_refreshNavigationState());
   }
 
-  Future<void> _completeLoadStop(String url) async {
-    if (!mounted) {
-      return;
-    }
-    _pendingHistoryTarget = null;
-    _historyDocumentStarted = false;
+  void _handlePageLoadStop(String url) {
+    if (!mounted) return;
+    _webViewEventRevision++;
     setState(() {
       _pendingInitialUrl = null;
       _state = _state.copyWith(
@@ -284,84 +289,66 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
         progress: 1,
       );
     });
-    await _refreshNavigationState();
-  }
-
-  void _applyVisitedUrl(String url) {
-    if (!mounted) {
-      return;
-    }
-    if (url != _state.currentUrl) {
-      setState(() {
-        _state = _state.copyWith(currentUrl: url);
-      });
-    }
     unawaited(_refreshNavigationState());
   }
 
-  Future<void> _verifySupersededHistory(
-    InAppWebViewController controller,
-    String url,
-  ) async {
-    final revision = _navigationGuard.revision;
-    try {
-      final currentUrl = await controller.getUrl();
-      if (!mounted ||
-          _webViewController != controller ||
-          _navigationGuard.revision != revision ||
-          currentUrl == null ||
-          !BrowserNavigationGuard.urlsMatch(currentUrl.toString(), url) ||
-          !_navigationGuard.acceptVerifiedVisitedUrl(url)) {
-        return;
-      }
-      _applyVisitedUrl(url);
-    } catch (_) {
-      // Ignore stale history from a page that is no longer visible.
-    }
+  void _handlePageTitleChanged(String? title) {
+    if (!mounted || _state.isLoading) return;
+    setState(() {
+      _state = _state.copyWith(
+        title: title?.isNotEmpty == true ? title! : 'Net Flow',
+      );
+    });
   }
 
-  void _finishHistoryWithoutDocumentLoad(String url) {
-    final expectedTarget = _pendingHistoryTarget;
-    if (!mounted ||
-        expectedTarget == null ||
-        _historyDocumentStarted ||
-        !_state.isLoading ||
-        !BrowserNavigationGuard.urlsMatch(url, expectedTarget) ||
-        !_navigationGuard.acceptLoadStop(url)) {
-      return;
-    }
-
-    // Same-document history (pushState, popstate or hash changes) need not
-    // emit onLoadStart/onLoadStop. The destination is already committed.
-    _pendingHistoryTarget = null;
+  void _handlePageProgress(int progress) {
+    if (!mounted) return;
     setState(() {
-      _state = _state.copyWith(isLoading: false, progress: 1);
+      _state = _state.copyWith(progress: progress / 100);
+    });
+  }
+
+  void _handleMainFrameError() {
+    if (!mounted) return;
+    _webViewEventRevision++;
+    // Leave Android WebView's own error/interstitial page visible.
+    setState(() {
+      _state = _state.copyWith(isLoading: false, progress: 0);
     });
     unawaited(_refreshNavigationState());
   }
 
   Future<void> _refreshNavigationState() async {
     final controller = _webViewController;
-    if (controller == null || !mounted) {
-      return;
-    }
-    final expectedUrl = _state.currentUrl;
+    if (controller == null || !mounted) return;
+    final revision = _webViewEventRevision;
+    final viewSeed = _webViewSeed;
+
     try {
+      // The native WebView is authoritative for the current URL, title and
+      // history; the toolbar and bookmarks may not rely on a requested URL.
+      final nativeUrl = await controller.getUrl();
       final title = await controller.getTitle();
-      final url = await controller.getUrl();
       final canGoBack = await controller.canGoBack();
       final canGoForward = await controller.canGoForward();
+
       if (!mounted ||
           _webViewController != controller ||
-          _state.currentUrl != expectedUrl ||
-          (url != null &&
-              !_navigationGuard.isCurrentUrl(url.toString()))) {
+          _webViewSeed != viewSeed ||
+          _webViewEventRevision != revision ||
+          _isHomeUrl(_state.currentUrl)) {
         return;
       }
+      final resolvedUrl = nativeUrl?.toString();
+      final validUrl = resolvedUrl != null &&
+          resolvedUrl.isNotEmpty &&
+          !(resolvedUrl == 'about:blank' &&
+              _state.isLoading &&
+              _state.currentUrl != 'about:blank');
 
       setState(() {
         _state = _state.copyWith(
-          currentUrl: url?.toString() ?? _state.currentUrl,
+          currentUrl: validUrl ? resolvedUrl : _state.currentUrl,
           title: _state.isLoading
               ? _state.title
               : (title?.isNotEmpty == true ? title! : 'Net Flow'),
@@ -370,7 +357,7 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
         );
       });
     } catch (_) {
-      // Ignore callbacks from a WebView that was closed during navigation.
+      // A detached/disposed native controller should not corrupt the UI.
     }
   }
 
@@ -673,12 +660,37 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
   }
 
   Future<void> _addBookmark() async {
-    final url = _state.currentUrl;
-    if (url.isEmpty || _isHomeUrl(url)) {
-      return;
+    final controller = _webViewController;
+    String url = _state.currentUrl;
+    String title = _state.title;
+
+    if (controller != null) {
+      try {
+        final liveUrl = await controller.getUrl();
+        if (liveUrl != null && liveUrl.toString().isNotEmpty) {
+          url = liveUrl.toString();
+        }
+        final liveTitle = await controller.getTitle();
+        if (liveTitle != null && liveTitle.isNotEmpty) {
+          title = liveTitle;
+        }
+      } catch (_) {
+        // Use the most recently reported WebView URL if the view is disposed.
+      }
     }
 
-    final title = _state.title == 'Net Flow' ? _hostFor(url) : _state.title;
+    if (!mounted || url.isEmpty || _isHomeUrl(url)) return;
+    if (title == 'Net Flow' || title.isEmpty) {
+      title = _hostFor(url);
+    }
+
+    // Keep the visible page address synchronized with the saved bookmark.
+    if (_state.currentUrl != url) {
+      setState(() {
+        _state = _state.copyWith(currentUrl: url, title: title);
+      });
+    }
+
     final bookmark = Bookmark(title: title, url: url);
     final next = <Bookmark>[
       ..._bookmarks.where((item) => item.url != url),
@@ -710,6 +722,8 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
   }
 
   Future<void> _showMenu() async {
+    await _refreshNavigationState();
+    if (!mounted) return;
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -733,17 +747,11 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
   Future<void> _goForward() => _queueHistoryNavigation(1);
 
   Future<void> _queueHistoryNavigation(int direction) {
-    // Each tap uses the history position after the preceding native command.
-    // Concurrent taps must not race against one another's old snapshots.
-    // Remember the generation before queuing so that opening a new address
-    // can invalidate all queued history commands.
     final generation = _explicitNavigationGeneration;
     final next = _historyCommandQueue.then(
       (_) => _navigateHistory(direction, generation),
     );
-    _historyCommandQueue = next.catchError((Object _) {
-      // Keep later history requests usable even if a platform call fails.
-    });
+    _historyCommandQueue = next.catchError((Object _) {});
     return _historyCommandQueue;
   }
 
@@ -755,97 +763,38 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
         _isHomeUrl(_state.currentUrl)) {
       return;
     }
-    final startingUrl = _state.currentUrl;
-
-    // Use the native back-forward list, not the app's previous URL (the
-    // latter is guarded against stale WebView callbacks).
-    WebHistory? history;
-    try {
-      history = await controller.getCopyBackForwardList();
-    } catch (_) {
-      // A disposed WebView can no longer navigate.
-      return;
-    }
-
-    final entries = history?.list;
-    final currentIndex = history?.currentIndex;
-    if (!mounted ||
-        _webViewController != controller ||
-        generation != _explicitNavigationGeneration ||
-        !BrowserNavigationGuard.urlsMatch(_state.currentUrl, startingUrl) ||
-        entries == null ||
-        currentIndex == null) {
-      return;
-    }
-    final targetIndex = currentIndex + direction;
-    if (targetIndex < 0 || targetIndex >= entries.length) {
-      await _refreshNavigationState();
-      return;
-    }
-
-    final targetUrl = entries[targetIndex].url?.toString();
-    if (targetUrl == null || targetUrl.isEmpty) {
-      await _refreshNavigationState();
-      return;
-    }
-
-    // A history destination is deliberately revisiting a previous URL.
-    // Authorize it *before* issuing goBack/goForward, otherwise the stale-
-    // event guard incorrectly discards this legitimate navigation.
-    final originalUrl = _state.currentUrl;
-    _navigationGuard.navigateTo(targetUrl);
-    final navigationRevision = _navigationGuard.revision;
-    _pendingHistoryTarget = targetUrl;
-    _historyDocumentStarted = false;
-    _deferredStoppedUrl = null;
-    _deferredStoppedRevision = null;
-    setState(() {
-      _state = _state.copyWith(
-        currentUrl: targetUrl,
-        title: 'Net Flow',
-        isLoading: true,
-        progress: 0,
-        canGoBack: targetIndex > 0,
-        canGoForward: targetIndex < entries.length - 1,
-      );
-    });
 
     try {
+      final available = direction < 0
+          ? await controller.canGoBack()
+          : await controller.canGoForward();
+      if (!mounted ||
+          _webViewController != controller ||
+          generation != _explicitNavigationGeneration) {
+        return;
+      }
+      if (!available) {
+        await _refreshNavigationState();
+        return;
+      }
       if (direction < 0) {
         await controller.goBack();
       } else {
         await controller.goForward();
       }
-
-      // Some history entries are same-document transitions; onLoadStop will
-      // not be called for them. Reconcile the native URL after the command.
-      final activeUrl = await controller.getUrl();
-      if (mounted &&
-          _webViewController == controller &&
-          _navigationGuard.revision == navigationRevision &&
-          activeUrl != null) {
-        _finishHistoryWithoutDocumentLoad(activeUrl.toString());
-      }
-    } catch (_) {
-      if (!mounted || _webViewController != controller ||
-          !_navigationGuard.isCurrentUrl(targetUrl)) {
+      if (!mounted ||
+          _webViewController != controller ||
+          generation != _explicitNavigationGeneration) {
         return;
       }
-      // Recover the actual page if the WebView was detached mid-command.
-      _pendingHistoryTarget = null;
-      _historyDocumentStarted = false;
-      _navigationGuard.navigateTo(originalUrl);
-      _navigationGuard.cancelPending();
-      setState(() {
-        _state = _state.copyWith(
-          currentUrl: originalUrl,
-          isLoading: false,
-          progress: 0,
-        );
-      });
-    }
-    if (mounted && _webViewController == controller) {
+
+      // Works both for document navigations and pushState/hash changes.
+      // The native callbacks keep future navigation and bookmarks in sync.
       await _refreshNavigationState();
+    } catch (_) {
+      if (mounted && _webViewController == controller) {
+        await _refreshNavigationState();
+      }
     }
   }
 
@@ -878,9 +827,7 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
     if (!mounted) {
       return;
     }
-    _pendingHistoryTarget = null;
-    _historyDocumentStarted = false;
-    _navigationGuard.cancelPending();
+    _webViewEventRevision++;
     setState(() {
       _state = _state.copyWith(isLoading: false, progress: 0);
     });
@@ -992,88 +939,31 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
       onReceivedServerTrustAuthRequest: (_, __) async {
         return _netfreePolicy.serverTrustResponse();
       },
-      onLoadStart: (controller, url) {
-        if (!mounted || _webViewController != controller) {
-          return;
-        }
-        final loadingUrl = url?.toString() ?? _state.currentUrl;
-        if (_navigationGuard.acceptLoadStart(loadingUrl)) {
-          if (_pendingHistoryTarget != null) {
-            _historyDocumentStarted = true;
-          }
-          _applyLoadStarted(loadingUrl);
-        } else if (_navigationGuard.isSupersededUrl(loadingUrl)) {
-          // Check the live page to distinguish a genuine redirect to an
-          // earlier address from an old callback queued by that page.
-          unawaited(_verifySupersededLoadStart(controller, loadingUrl));
-        }
+      onLoadStart: (_, url) {
+        if (!mounted || viewSeed != _webViewSeed) return;
+        _handlePageLoadStart(url?.toString() ?? _state.currentUrl);
       },
-      onProgressChanged: (controller, progress) {
-        if (!mounted || _webViewController != controller) {
-          return;
-        }
-        setState(() {
-          // Progress may belong to an older request on the same WebView.
-          // Only load-stop or main-frame failure can finish a navigation.
-          _state = _state.copyWith(progress: progress / 100);
-        });
+      onProgressChanged: (_, progress) {
+        if (!mounted || viewSeed != _webViewSeed) return;
+        _handlePageProgress(progress);
       },
-      onTitleChanged: (controller, _) {
-        // A queued title callback has no URL and can belong to the old page.
-        // Read the live WebView title only after navigation has finished.
+      onTitleChanged: (_, title) {
+        if (!mounted || viewSeed != _webViewSeed) return;
+        _handlePageTitleChanged(title);
+      },
+      onLoadStop: (_, url) {
+        if (!mounted || viewSeed != _webViewSeed) return;
+        _handlePageLoadStop(url?.toString() ?? _state.currentUrl);
+      },
+      onUpdateVisitedHistory: (_, url, __) {
+        if (!mounted || viewSeed != _webViewSeed || url == null) return;
+        _handleVisitedHistory(url.toString());
+      },
+      onReceivedError: (_, request, __) {
         if (!mounted ||
-            _webViewController != controller ||
-            !_navigationGuard.canRefreshTitle ||
-            _state.isLoading) {
-          return;
-        }
-        unawaited(_refreshNavigationState());
-      },
-      onLoadStop: (controller, url) async {
-        if (!mounted || _webViewController != controller) {
-          return;
-        }
-        final stoppedUrl = url?.toString() ?? _state.currentUrl;
-        if (!_navigationGuard.isCurrentUrl(stoppedUrl) ||
-            !_navigationGuard.acceptLoadStop(stoppedUrl)) {
-          // An ambiguous redirect might have finished while getUrl() was
-          // still pending. Remember the completion for the same revision.
-          if (_navigationGuard.isSupersededUrl(stoppedUrl)) {
-            _deferredStoppedUrl = stoppedUrl;
-            _deferredStoppedRevision = _navigationGuard.revision;
-          }
-          return;
-        }
-        await _completeLoadStop(stoppedUrl);
-      },
-      onUpdateVisitedHistory: (controller, url, _) {
-        if (!mounted || _webViewController != controller || url == null) {
-          return;
-        }
-        final visitedUrl = url.toString();
-        if (_navigationGuard.acceptVisitedUrl(visitedUrl)) {
-          _applyVisitedUrl(visitedUrl);
-          _finishHistoryWithoutDocumentLoad(visitedUrl);
-        } else if (_navigationGuard.isSupersededUrl(visitedUrl)) {
-          unawaited(_verifySupersededHistory(controller, visitedUrl));
-        }
-      },
-      onReceivedError: (controller, request, _) {
-        // Keep native WebView errors and filtering/interstitial pages visible.
-        // Subresource failures and stale navigation failures must not replace
-        // the current page or stop a different page's loading indicator.
-        if (!mounted ||
-            _webViewController != controller ||
-            request.isForMainFrame != true ||
-            !_navigationGuard.isCurrentUrl(request.url.toString())) {
-          return;
-        }
-        _pendingHistoryTarget = null;
-        _historyDocumentStarted = false;
-        _navigationGuard.cancelPending();
-        setState(() {
-          _state = _state.copyWith(isLoading: false, progress: 0);
-        });
+            viewSeed != _webViewSeed ||
+            request.isForMainFrame != true) return;
+        _handleMainFrameError();
       },
       onDownloadStartRequest: (_, request) => _handleDownload(request),
       onPermissionRequest: (_, request) => _handlePermissionRequest(request),
