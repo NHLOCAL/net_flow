@@ -15,6 +15,7 @@ import '../services/android_browser_channel.dart';
 import '../services/bookmark_store.dart';
 import '../services/download_service.dart';
 import '../services/netfree_browser_policy.dart';
+import '../services/browser_navigation_guard.dart';
 import '../services/search_history_store.dart';
 import '../services/settings_store.dart';
 import '../services/site_permission_store.dart';
@@ -49,6 +50,7 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
   SitePermissionStore? _permissionStore;
 
   late BrowserState _state;
+  late final BrowserNavigationGuard _navigationGuard;
   BrowserSettings _settings = const BrowserSettings.defaults();
   List<Bookmark> _bookmarks = <Bookmark>[];
   List<String> _searchHistory = <String>[];
@@ -60,6 +62,7 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
   void initState() {
     super.initState();
     _state = widget.initialState;
+    _navigationGuard = BrowserNavigationGuard(initialUrl: _state.currentUrl);
     _androidChannel = widget.androidChannel ?? AndroidBrowserChannel();
     _androidChannel.setOpenUrlHandler(_openIncomingUrl);
     unawaited(_initialize());
@@ -125,6 +128,7 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
     if (!mounted) {
       return;
     }
+    _navigationGuard.navigateTo(url);
     setState(() {
       _pendingInitialUrl = controller == null ? url : null;
       if (controller == null) {
@@ -167,6 +171,7 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
       return;
     }
     // Show home immediately even if the remote site is still loading.
+    _navigationGuard.resetTo(_settings.homeUrl);
     setState(() {
       _pendingInitialUrl = null;
       _webViewSeed++;
@@ -200,7 +205,9 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
       final canGoForward = await controller.canGoForward();
       if (!mounted ||
           _webViewController != controller ||
-          _state.currentUrl != expectedUrl) {
+          _state.currentUrl != expectedUrl ||
+          (url != null &&
+              !_navigationGuard.isCurrentUrl(url.toString()))) {
         return;
       }
 
@@ -608,6 +615,7 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
     if (!mounted) {
       return;
     }
+    _navigationGuard.cancelPending();
     setState(() {
       _state = _state.copyWith(isLoading: false, progress: 0);
     });
@@ -723,6 +731,9 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
           return;
         }
         final loadingUrl = url?.toString() ?? _state.currentUrl;
+        if (!_navigationGuard.acceptLoadStart(loadingUrl)) {
+          return;
+        }
         setState(() {
           _pendingInitialUrl = null;
           _state = _state.copyWith(
@@ -737,10 +748,9 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
           return;
         }
         setState(() {
-          _state = _state.copyWith(
-            progress: progress / 100,
-            isLoading: progress >= 100 ? false : _state.isLoading,
-          );
+          // Progress may belong to an older request on the same WebView.
+          // Only load-stop or main-frame failure can finish a navigation.
+          _state = _state.copyWith(progress: progress / 100);
         });
       },
       onTitleChanged: (controller, title) {
@@ -756,8 +766,9 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
           return;
         }
         final stoppedUrl = url?.toString() ?? _state.currentUrl;
-        if (stoppedUrl != _state.currentUrl) {
-          // A superseded navigation may finish after a newer one has begun.
+        if (!_navigationGuard.acceptLoadStop(stoppedUrl) ||
+            stoppedUrl != _state.currentUrl) {
+          // A superseded navigation must never overwrite the newer request.
           return;
         }
         setState(() {
@@ -775,6 +786,9 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
           return;
         }
         final visitedUrl = url.toString();
+        if (!_navigationGuard.acceptVisitedUrl(visitedUrl)) {
+          return;
+        }
         if (visitedUrl != _state.currentUrl) {
           setState(() {
             _state = _state.copyWith(currentUrl: visitedUrl);
@@ -789,9 +803,11 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
         if (!mounted ||
             _webViewController != controller ||
             request.isForMainFrame != true ||
-            request.url.toString() != _state.currentUrl) {
+            request.url.toString() != _state.currentUrl ||
+            !_navigationGuard.isCurrentUrl(request.url.toString())) {
           return;
         }
+        _navigationGuard.cancelPending();
         setState(() {
           _state = _state.copyWith(isLoading: false, progress: 0);
         });

@@ -107,25 +107,32 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Image.asset(
-                              'assets/icon_launcher.png',
-                              key: const Key('browser-home-app-icon'),
-                              width: veryCompact ? 48 : (compact ? 64 : 84),
-                              height: veryCompact ? 48 : (compact ? 64 : 84),
-                              fit: BoxFit.contain,
-                              filterQuality: FilterQuality.medium,
-                              semanticLabel: 'סמל Net Flow',
-                            ),
-                            SizedBox(height: compact ? 10 : 14),
-                            Text(
-                              'Net Flow',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .headlineMedium
-                                  ?.copyWith(
-                                    color: colorScheme.primary,
-                                    fontWeight: FontWeight.w800,
-                                  ),
+                            Row(
+                              key: const Key('browser-home-brand-row'),
+                              mainAxisSize: MainAxisSize.min,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Image.asset(
+                                  'assets/icon_launcher.png',
+                                  key: const Key('browser-home-app-icon'),
+                                  width: veryCompact ? 42 : (compact ? 52 : 64),
+                                  height: veryCompact ? 42 : (compact ? 52 : 64),
+                                  fit: BoxFit.contain,
+                                  filterQuality: FilterQuality.medium,
+                                  semanticLabel: 'סמל Net Flow',
+                                ),
+                                SizedBox(width: compact ? 9 : 12),
+                                Text(
+                                  'Net Flow',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .headlineMedium
+                                      ?.copyWith(
+                                        color: colorScheme.primary,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                ),
+                              ],
                             ),
                             SizedBox(height: compact ? 18 : 26),
                             TextField(

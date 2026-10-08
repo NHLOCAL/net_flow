@@ -70,6 +70,14 @@ void main() {
     );
     expect(image.image, isA<AssetImage>());
     expect((image.image as AssetImage).assetName, 'assets/icon_launcher.png');
+
+    final iconCenter = tester.getCenter(
+      find.byKey(const Key('browser-home-app-icon')),
+    );
+    final titleCenter = tester.getCenter(find.text('Net Flow'));
+    expect(find.byKey(const Key('browser-home-brand-row')), findsOneWidget);
+    expect((iconCenter.dy - titleCenter.dy).abs(), lessThan(1));
+    expect(iconCenter.dx, greaterThan(titleCenter.dx));
   });
 
   testWidgets('home does not overflow in a short viewport', (tester) async {
@@ -90,6 +98,12 @@ void main() {
 
     expect(find.byKey(const Key('browser-home-app-icon')), findsOneWidget);
     expect(find.byKey(const Key('browser-home-search-field')), findsOneWidget);
+    final icon = tester.getCenter(
+      find.byKey(const Key('browser-home-app-icon')),
+    );
+    final title = tester.getCenter(find.text('Net Flow'));
+    expect((icon.dy - title.dy).abs(), lessThan(1));
+    expect(icon.dx, greaterThan(title.dx));
     expect(tester.takeException(), isNull);
   });
 
