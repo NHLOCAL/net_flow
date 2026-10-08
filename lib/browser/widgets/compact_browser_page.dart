@@ -248,7 +248,9 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
 
 
   void _handlePageLoadStart(String url) {
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
 
     // Accept actual WebView transitions, including HTTP 30x redirects and
     // normal link clicks. A requested google.com URL may legitimately turn
@@ -267,7 +269,9 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
   }
 
   void _handleVisitedHistory(String url) {
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
 
     // Android emits this for normal navigations AND SPA history/popstate.
     // It must never be filtered because the URL was visited previously.
@@ -279,7 +283,9 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
   }
 
   void _handlePageLoadStop(String url) {
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     _webViewEventRevision++;
     setState(() {
       _pendingInitialUrl = null;
@@ -293,7 +299,9 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
   }
 
   void _handlePageTitleChanged(String? title) {
-    if (!mounted || _state.isLoading) return;
+    if (!mounted || _state.isLoading) {
+      return;
+    }
     setState(() {
       _state = _state.copyWith(
         title: title?.isNotEmpty == true ? title! : 'Net Flow',
@@ -302,14 +310,18 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
   }
 
   void _handlePageProgress(int progress) {
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     setState(() {
       _state = _state.copyWith(progress: progress / 100);
     });
   }
 
   void _handleMainFrameError() {
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     _webViewEventRevision++;
     // Leave Android WebView's own error/interstitial page visible.
     setState(() {
@@ -320,7 +332,9 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
 
   Future<void> _refreshNavigationState() async {
     final controller = _webViewController;
-    if (controller == null || !mounted) return;
+    if (controller == null || !mounted) {
+      return;
+    }
     final revision = _webViewEventRevision;
     final viewSeed = _webViewSeed;
 
@@ -679,7 +693,9 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
       }
     }
 
-    if (!mounted || url.isEmpty || _isHomeUrl(url)) return;
+    if (!mounted || url.isEmpty || _isHomeUrl(url)) {
+      return;
+    }
     if (title == 'Net Flow' || title.isEmpty) {
       title = _hostFor(url);
     }
@@ -723,7 +739,9 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
 
   Future<void> _showMenu() async {
     await _refreshNavigationState();
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
