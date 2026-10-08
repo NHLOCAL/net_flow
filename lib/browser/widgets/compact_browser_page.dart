@@ -214,7 +214,9 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
       setState(() {
         _state = _state.copyWith(
           currentUrl: url?.toString() ?? _state.currentUrl,
-          title: title?.isNotEmpty == true ? title! : 'Net Flow',
+          title: _state.isLoading
+              ? _state.title
+              : (title?.isNotEmpty == true ? title! : 'Net Flow'),
           canGoBack: canGoBack,
           canGoForward: canGoForward,
         );
@@ -753,13 +755,16 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
           _state = _state.copyWith(progress: progress / 100);
         });
       },
-      onTitleChanged: (controller, title) {
-        if (!mounted || _webViewController != controller) {
+      onTitleChanged: (controller, _) {
+        // A queued title callback has no URL and can belong to the old page.
+        // Read the live WebView title only after navigation has finished.
+        if (!mounted ||
+            _webViewController != controller ||
+            !_navigationGuard.canRefreshTitle ||
+            _state.isLoading) {
           return;
         }
-        setState(() {
-          _state = _state.copyWith(title: title ?? 'Net Flow');
-        });
+        unawaited(_refreshNavigationState());
       },
       onLoadStop: (controller, url) async {
         if (!mounted || _webViewController != controller) {

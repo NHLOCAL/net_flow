@@ -1,77 +1,109 @@
-/// Tracks the URL of the active main-frame navigation on a reused WebView.
+/// Tracks main-frame navigation on a WebView reused between addresses.
 ///
-/// WebView callbacks have no request ID. Explicit address-bar navigations set
-/// an expected URL so callbacks from the previous page cannot replace the
-/// current URL or mark the newer request as finished.
+/// Platform callbacks do not carry request IDs. Keep late events from an older
+/// page from overwriting the active URL, title and loading indicator.
 class BrowserNavigationGuard {
   BrowserNavigationGuard({String? initialUrl}) : _activeUrl = initialUrl;
 
   String? _activeUrl;
   String? _pendingRequestedUrl;
+  bool _isNavigating = false;
+  final Set<String> _supersededHistoryUrls = <String>{};
 
-  /// Start a user-requested navigation before dispatching it to the WebView.
   void navigateTo(String url) {
+    _rememberPreviousUrl(url);
     _activeUrl = url;
     _pendingRequestedUrl = url;
+    _isNavigating = true;
   }
 
-  /// Return to the native home screen; callbacks from the old view are stale.
   void resetTo(String url) {
     _activeUrl = url;
     _pendingRequestedUrl = null;
+    _isNavigating = false;
+    _supersededHistoryUrls.clear();
   }
 
-  /// Accept the requested page's first load; subsequent redirects are valid.
   bool acceptLoadStart(String url) {
-    if (_pendingRequestedUrl != null && !_sameUrl(_pendingRequestedUrl!, url)) {
+    if (_pendingRequestedUrl != null &&
+        !_sameUrl(_pendingRequestedUrl!, url)) {
       return false;
     }
+    _rememberPreviousUrl(url);
     _pendingRequestedUrl = null;
     _activeUrl = url;
+    _isNavigating = true;
+    // A genuine redirect can load the earlier address again.
+    _supersededHistoryUrls.removeWhere((old) => _sameUrl(old, url));
     return true;
   }
 
-  /// Ignore history callbacks from the old page before the new load starts.
   bool acceptVisitedUrl(String url) {
-    if (_pendingRequestedUrl != null && !_sameUrl(_pendingRequestedUrl!, url)) {
+    if (_pendingRequestedUrl != null &&
+        !_sameUrl(_pendingRequestedUrl!, url)) {
+      return false;
+    }
+    // A previous page may emit history callbacks after the new load started.
+    if (_isNavigating &&
+        _supersededHistoryUrls.any((old) => _sameUrl(old, url))) {
       return false;
     }
     _activeUrl = url;
     return true;
   }
 
-  /// Only the currently displayed URL can finish its loading indicator.
   bool acceptLoadStop(String url) {
     if (!isCurrentUrl(url)) {
       return false;
     }
     _pendingRequestedUrl = null;
+    _isNavigating = false;
+    _supersededHistoryUrls.clear();
     return true;
   }
 
   bool isCurrentUrl(String url) =>
       _activeUrl != null && _sameUrl(_activeUrl!, url);
 
-  // Android WebView commonly appends '/' to a bare HTTP(S) origin.
+  /// A title event contains no URL; refresh the title only after load-stop.
+  bool get canRefreshTitle => !_isNavigating;
+
+  void cancelPending() {
+    _pendingRequestedUrl = null;
+    _isNavigating = false;
+    _supersededHistoryUrls.clear();
+  }
+
+  void _rememberPreviousUrl(String nextUrl) {
+    final previous = _activeUrl;
+    if (previous != null && !_sameUrl(previous, nextUrl)) {
+      _supersededHistoryUrls.add(previous);
+    }
+  }
+
+  /// Chromium may add '/' to bare origins and omit default 80/443 ports.
   static bool _sameUrl(String first, String second) {
     if (first == second) {
       return true;
     }
-    return _normalizeUrl(first) == _normalizeUrl(second);
-  }
-
-  static String _normalizeUrl(String value) {
-    final uri = Uri.tryParse(value);
-    if (uri == null ||
-        !uri.hasAuthority ||
-        (uri.scheme != 'http' && uri.scheme != 'https')) {
-      return value;
+    final a = Uri.tryParse(first);
+    final b = Uri.tryParse(second);
+    if (a == null ||
+        b == null ||
+        (a.scheme != 'http' && a.scheme != 'https') ||
+        a.scheme != b.scheme ||
+        a.host.isEmpty ||
+        b.host.isEmpty) {
+      return false;
     }
-    return uri.replace(path: uri.path.isEmpty ? '/' : uri.path).toString();
-  }
 
-  /// Used after an explicit stop or a main-frame network failure.
-  void cancelPending() {
-    _pendingRequestedUrl = null;
+    String path(Uri url) => url.path.isEmpty ? '/' : url.path;
+
+    return a.host == b.host &&
+        a.port == b.port &&
+        a.userInfo == b.userInfo &&
+        path(a) == path(b) &&
+        a.query == b.query &&
+        a.fragment == b.fragment;
   }
 }

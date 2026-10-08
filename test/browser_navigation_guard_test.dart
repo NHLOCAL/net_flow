@@ -65,6 +65,68 @@ void main() {
     expect(guard.acceptLoadStop('https://example.com/a?q=one'), isTrue);
   });
 
+  test('old history stays rejected after the newer page starts', () {
+    final guard = BrowserNavigationGuard(initialUrl: 'https://a.test/');
+    guard.navigateTo('https://b.test/');
+    expect(guard.acceptLoadStart('https://b.test/'), isTrue);
+
+    expect(guard.acceptVisitedUrl('https://a.test/'), isFalse);
+    expect(guard.isCurrentUrl('https://b.test/'), isTrue);
+    expect(guard.acceptLoadStop('https://a.test/'), isFalse);
+    expect(guard.acceptLoadStop('https://b.test/'), isTrue);
+  });
+
+  test('superseded history is rejected across redirects', () {
+    final guard = BrowserNavigationGuard(initialUrl: 'https://a.test/');
+    guard.navigateTo('https://b.test/');
+    expect(guard.acceptLoadStart('https://b.test/'), isTrue);
+    expect(guard.acceptLoadStart('https://c.test/'), isTrue);
+
+    expect(guard.acceptVisitedUrl('https://b.test/'), isFalse);
+    expect(guard.acceptVisitedUrl('https://a.test/'), isFalse);
+    expect(guard.isCurrentUrl('https://c.test/'), isTrue);
+    expect(guard.acceptLoadStop('https://c.test/'), isTrue);
+  });
+
+  test('genuine redirect back to the old URL remains possible', () {
+    final guard = BrowserNavigationGuard(initialUrl: 'https://a.test/');
+    guard.navigateTo('https://b.test/');
+    expect(guard.acceptLoadStart('https://b.test/'), isTrue);
+    expect(guard.acceptLoadStart('https://a.test/'), isTrue);
+    expect(guard.acceptVisitedUrl('https://a.test/'), isTrue);
+    expect(guard.acceptLoadStop('https://a.test/'), isTrue);
+  });
+
+  test('explicit default HTTPS and HTTP ports are canonicalized', () {
+    final guard = BrowserNavigationGuard();
+    guard.navigateTo('https://example.com:443');
+    expect(guard.acceptLoadStart('https://example.com/'), isTrue);
+    expect(guard.acceptLoadStop('https://example.com/'), isTrue);
+
+    guard.navigateTo('http://example.com:80');
+    expect(guard.acceptLoadStart('http://example.com/'), isTrue);
+    expect(guard.acceptLoadStop('http://example.com/'), isTrue);
+  });
+
+  test('nondefault HTTPS ports stay distinct', () {
+    final guard = BrowserNavigationGuard();
+    guard.navigateTo('https://example.com:8443/');
+    expect(guard.acceptLoadStart('https://example.com/'), isFalse);
+    expect(guard.acceptLoadStop('https://example.com/'), isFalse);
+    expect(guard.acceptLoadStart('https://example.com:8443/'), isTrue);
+  });
+
+  test('title refresh is disabled while the new page loads', () {
+    final guard = BrowserNavigationGuard(initialUrl: 'https://a.test/');
+    expect(guard.canRefreshTitle, isTrue);
+    guard.navigateTo('https://b.test/');
+    expect(guard.canRefreshTitle, isFalse);
+    expect(guard.acceptLoadStart('https://b.test/'), isTrue);
+    expect(guard.canRefreshTitle, isFalse);
+    expect(guard.acceptLoadStop('https://b.test/'), isTrue);
+    expect(guard.canRefreshTitle, isTrue);
+  });
+
   test('reset and cancellation do not leave a pending URL', () {
     final guard = BrowserNavigationGuard(initialUrl: 'https://a.test/');
     guard.navigateTo('https://b.test/');
