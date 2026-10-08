@@ -985,7 +985,7 @@ void main() {
         ),
       ),
     ));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 400));
 
     events.loadStarted?.call('https://second.example/');
     events.mainFrameError?.call('https://first.example/');
@@ -1014,12 +1014,12 @@ void main() {
         ),
       ),
     ));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 400));
 
     await tester.tap(find.byKey(const Key('browser-menu-button')));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 400));
     await tester.tap(find.text('שמור'));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 400));
 
     final preferences = await SharedPreferences.getInstance();
     final bookmarks = jsonDecode(
