@@ -772,6 +772,7 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
     // event guard incorrectly discards this legitimate navigation.
     final originalUrl = _state.currentUrl;
     _navigationGuard.navigateTo(targetUrl);
+    final navigationRevision = _navigationGuard.revision;
     _pendingHistoryTarget = targetUrl;
     _historyDocumentStarted = false;
     _deferredStoppedUrl = null;
@@ -797,7 +798,10 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
       // Some history entries are same-document transitions; onLoadStop will
       // not be called for them. Reconcile the native URL after the command.
       final activeUrl = await controller.getUrl();
-      if (mounted && _webViewController == controller && activeUrl != null) {
+      if (mounted &&
+          _webViewController == controller &&
+          _navigationGuard.revision == navigationRevision &&
+          activeUrl != null) {
         _finishHistoryWithoutDocumentLoad(activeUrl.toString());
       }
     } catch (_) {
