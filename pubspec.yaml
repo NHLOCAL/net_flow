@@ -1,6 +1,6 @@
 name: net_flow
 description: A new Flutter project.
-version: 0.4.2+6
+version: 0.4.3+7
 
 # The following line prevents the package from being accidentally published to
 # pub.dev using `pub publish`. This is preferred for private packages.
@@ -31,6 +31,8 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/icon_launcher.png
 
 flutter_launcher_icons:
   android: true

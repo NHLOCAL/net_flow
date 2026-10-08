@@ -8,7 +8,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/bookmark.dart';
-import '../models/browser_error.dart';
 import '../models/browser_settings.dart';
 import '../models/browser_state.dart';
 import '../models/site_permission_decision.dart';
@@ -16,11 +15,11 @@ import '../services/android_browser_channel.dart';
 import '../services/bookmark_store.dart';
 import '../services/download_service.dart';
 import '../services/netfree_browser_policy.dart';
+import '../services/browser_navigation_guard.dart';
 import '../services/search_history_store.dart';
 import '../services/settings_store.dart';
 import '../services/site_permission_store.dart';
 import '../services/url_resolver.dart';
-import 'browser_error_view.dart';
 import 'browser_home_page.dart';
 import 'browser_menu_sheet.dart';
 
@@ -28,12 +27,18 @@ class CompactBrowserPage extends StatefulWidget {
   const CompactBrowserPage({
     super.key,
     this.webViewOverride,
+    this.webViewControllerOverride,
     this.androidChannel,
     this.downloadService = const DownloadService(),
     this.initialState = const BrowserState(),
   });
 
   final Widget? webViewOverride;
+
+  /// Test-only controller for exercising real navigation commands with a
+  /// fake platform history while using [webViewOverride].
+  final InAppWebViewController? webViewControllerOverride;
+
   final AndroidBrowserChannel? androidChannel;
   final DownloadService downloadService;
   final BrowserState initialState;
@@ -51,27 +56,31 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
   SitePermissionStore? _permissionStore;
 
   late BrowserState _state;
+  late final BrowserNavigationGuard _navigationGuard;
   BrowserSettings _settings = const BrowserSettings.defaults();
   List<Bookmark> _bookmarks = <Bookmark>[];
   List<String> _searchHistory = <String>[];
   String? _pendingInitialUrl;
   int _webViewSeed = 0;
-  Timer? _loadTimeoutTimer;
+  Future<void> _historyCommandQueue = Future<void>.value();
+  // Cancels queued or pending history commands whenever the user explicitly
+  // navigates to another address, home, refresh or stop.
+  int _explicitNavigationGeneration = 0;
+  String? _pendingHistoryTarget;
+  bool _historyDocumentStarted = false;
+  String? _deferredStoppedUrl;
+  int? _deferredStoppedRevision;
   final NetfreeBrowserPolicy _netfreePolicy = const NetfreeBrowserPolicy();
 
   @override
   void initState() {
     super.initState();
     _state = widget.initialState;
+    _webViewController = widget.webViewControllerOverride;
+    _navigationGuard = BrowserNavigationGuard(initialUrl: _state.currentUrl);
     _androidChannel = widget.androidChannel ?? AndroidBrowserChannel();
     _androidChannel.setOpenUrlHandler(_openIncomingUrl);
     unawaited(_initialize());
-  }
-
-  @override
-  void dispose() {
-    _loadTimeoutTimer?.cancel();
-    super.dispose();
   }
 
   Future<void> _initialize() async {
@@ -103,7 +112,7 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
 
   Future<String?> _safeGetInitialUrl() async {
     try {
-      return _androidChannel.getInitialUrl();
+      return await _androidChannel.getInitialUrl();
     } catch (_) {
       return null;
     }
@@ -121,6 +130,16 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
     await _loadUrl(input);
   }
 
+  void _invalidateHistoryRequests() {
+    // Any queued work from the prior address belongs to a different
+    // generation. Replace the queue rather than chaining new taps behind a
+    // platform history query that may never complete.
+    _explicitNavigationGeneration++;
+    _historyCommandQueue = Future<void>.value();
+    _pendingHistoryTarget = null;
+    _historyDocumentStarted = false;
+  }
+
   Future<void> _loadUrl(String input) async {
     final url = BrowserUrlResolver(settings: _settings).resolve(input);
     if (_isHomeUrl(url)) {
@@ -128,29 +147,58 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
       return;
     }
 
-    await _detachWebView();
+    // Reuse the current WebView so navigation does not discard page history,
+    // cookies, or in-flight site state.
+    final controller = _webViewController;
     if (!mounted) {
       return;
     }
+    _invalidateHistoryRequests();
+    _navigationGuard.navigateTo(url);
     setState(() {
-      _pendingInitialUrl = url;
-      _webViewSeed++;
+      _pendingInitialUrl = controller == null ? url : null;
+      if (controller == null) {
+        _webViewSeed++;
+      }
       _state = _state.copyWith(
         currentUrl: url,
+        title: 'Net Flow',
         isLoading: true,
         progress: 0,
-        clearError: true,
+        canGoBack: controller == null ? false : _state.canGoBack,
+        canGoForward: controller == null ? false : _state.canGoForward,
       );
     });
-    _startLoadTimeout(url);
+
+    if (controller == null) {
+      return;
+    }
+    try {
+      await controller.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
+    } catch (_) {
+      if (!mounted ||
+          _webViewController != controller ||
+          _state.currentUrl != url) {
+        return;
+      }
+      // Recover from a disposed platform view without showing a custom error.
+      _webViewController = null;
+      setState(() {
+        _pendingInitialUrl = url;
+        _webViewSeed++;
+      });
+    }
   }
 
   Future<void> _showHome() async {
-    _cancelLoadTimeout();
-    await _detachWebView();
+    final controller = _webViewController;
+    _webViewController = null;
     if (!mounted) {
       return;
     }
+    // Show home immediately even if the remote site is still loading.
+    _invalidateHistoryRequests();
+    _navigationGuard.resetTo(_settings.homeUrl);
     setState(() {
       _pendingInitialUrl = null;
       _webViewSeed++;
@@ -161,92 +209,135 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
         progress: 0,
         canGoBack: false,
         canGoForward: false,
-        clearError: true,
       );
     });
-  }
-
-  Future<void> _detachWebView() async {
-    final controller = _webViewController;
-    _webViewController = null;
-    if (controller == null) {
-      return;
-    }
 
     try {
-      await controller.stopLoading();
+      await controller?.stopLoading();
     } catch (_) {
-      // The controller can already be detached when an error view replaced it.
+      // The old platform WebView may already have been disposed.
     }
   }
 
-  void _startLoadTimeout(String url) {
-    _loadTimeoutTimer?.cancel();
-    _loadTimeoutTimer = Timer(const Duration(seconds: 12), () async {
-      if (!mounted || !_state.isLoading || _state.currentUrl != url) {
-        return;
-      }
-      await _webViewController?.stopLoading();
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _state = _state.copyWith(
-          isLoading: false,
-          progress: 0,
-          error: BrowserError.timeout(url: url),
-        );
-      });
-    });
-  }
-
-  void _cancelLoadTimeout() {
-    _loadTimeoutTimer?.cancel();
-    _loadTimeoutTimer = null;
-  }
-
-  Future<void> _showBlankPageErrorIfNeeded(String url) async {
-    if (_isHomeUrl(url)) {
+  void _applyLoadStarted(String url) {
+    if (!mounted) {
       return;
     }
-
-    await Future<void>.delayed(const Duration(milliseconds: 800));
-    final controller = _webViewController;
-    if (!mounted || controller == null || _state.error != null) {
-      return;
-    }
-
-    final currentUrl = (await controller.getUrl())?.toString();
-    if (!mounted || currentUrl != url) {
-      return;
-    }
-
-    try {
-      final result = await controller.evaluateJavascript(
-        source: '''
-          (() => {
-            const body = document.body;
-            if (!body) return 0;
-            return (body.innerText || '').trim().length +
-              (body.querySelectorAll('img, video, canvas, iframe').length * 10);
-          })();
-        ''',
-      );
-      final contentScore = int.tryParse(result?.toString() ?? '') ?? 0;
-      if (!mounted || contentScore > 0) {
-        return;
-      }
-    } catch (_) {
-      return;
-    }
-
     setState(() {
+      _pendingInitialUrl = null;
       _state = _state.copyWith(
-        isLoading: false,
+        currentUrl: url,
+        isLoading: true,
         progress: 0,
-        error: BrowserError.blank(url: url),
       );
     });
+  }
+
+  Future<void> _verifySupersededLoadStart(
+    InAppWebViewController controller,
+    String url,
+  ) async {
+    final revision = _navigationGuard.revision;
+    try {
+      final currentUrl = await controller.getUrl();
+      if (!mounted ||
+          _webViewController != controller ||
+          _navigationGuard.revision != revision ||
+          !_state.isLoading ||
+          currentUrl == null ||
+          !BrowserNavigationGuard.urlsMatch(currentUrl.toString(), url)) {
+        return;
+      }
+
+      final alreadyStopped =
+          _deferredStoppedRevision == revision &&
+          _deferredStoppedUrl != null &&
+          BrowserNavigationGuard.urlsMatch(_deferredStoppedUrl!, url);
+      if (!_navigationGuard.acceptVerifiedLoadStart(url)) {
+        return;
+      }
+
+      if (alreadyStopped && _navigationGuard.acceptLoadStop(url)) {
+        await _completeLoadStop(url);
+      } else {
+        if (_pendingHistoryTarget != null) {
+          _historyDocumentStarted = true;
+        }
+        _applyLoadStarted(url);
+      }
+    } catch (_) {
+      // Do not let a delayed verification restart a stopped or newer load.
+    }
+  }
+
+  Future<void> _completeLoadStop(String url) async {
+    if (!mounted) {
+      return;
+    }
+    _pendingHistoryTarget = null;
+    _historyDocumentStarted = false;
+    setState(() {
+      _pendingInitialUrl = null;
+      _state = _state.copyWith(
+        currentUrl: url,
+        isLoading: false,
+        progress: 1,
+      );
+    });
+    await _refreshNavigationState();
+  }
+
+  void _applyVisitedUrl(String url) {
+    if (!mounted) {
+      return;
+    }
+    if (url != _state.currentUrl) {
+      setState(() {
+        _state = _state.copyWith(currentUrl: url);
+      });
+    }
+    unawaited(_refreshNavigationState());
+  }
+
+  Future<void> _verifySupersededHistory(
+    InAppWebViewController controller,
+    String url,
+  ) async {
+    final revision = _navigationGuard.revision;
+    try {
+      final currentUrl = await controller.getUrl();
+      if (!mounted ||
+          _webViewController != controller ||
+          _navigationGuard.revision != revision ||
+          currentUrl == null ||
+          !BrowserNavigationGuard.urlsMatch(currentUrl.toString(), url) ||
+          !_navigationGuard.acceptVerifiedVisitedUrl(url)) {
+        return;
+      }
+      _applyVisitedUrl(url);
+    } catch (_) {
+      // Ignore stale history from a page that is no longer visible.
+    }
+  }
+
+  void _finishHistoryWithoutDocumentLoad(String url) {
+    final expectedTarget = _pendingHistoryTarget;
+    if (!mounted ||
+        expectedTarget == null ||
+        _historyDocumentStarted ||
+        !_state.isLoading ||
+        !BrowserNavigationGuard.urlsMatch(url, expectedTarget) ||
+        !_navigationGuard.acceptLoadStop(url)) {
+      return;
+    }
+
+    // Same-document history (pushState, popstate or hash changes) need not
+    // emit onLoadStart/onLoadStop. The destination is already committed.
+    _pendingHistoryTarget = null;
+    setState(() {
+      _state = _state.copyWith(isLoading: false, progress: 1);
+    });
+    unawaited(_refreshNavigationState());
   }
 
   Future<void> _refreshNavigationState() async {
@@ -254,33 +345,49 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
     if (controller == null || !mounted) {
       return;
     }
+    final expectedUrl = _state.currentUrl;
+    try {
+      final title = await controller.getTitle();
+      final url = await controller.getUrl();
+      final canGoBack = await controller.canGoBack();
+      final canGoForward = await controller.canGoForward();
+      if (!mounted ||
+          _webViewController != controller ||
+          _state.currentUrl != expectedUrl ||
+          (url != null &&
+              !_navigationGuard.isCurrentUrl(url.toString()))) {
+        return;
+      }
 
-    final title = await controller.getTitle();
-    final url = await controller.getUrl();
-    final canGoBack = await controller.canGoBack();
-    final canGoForward = await controller.canGoForward();
-    if (!mounted) {
-      return;
+      setState(() {
+        _state = _state.copyWith(
+          currentUrl: url?.toString() ?? _state.currentUrl,
+          title: _state.isLoading
+              ? _state.title
+              : (title?.isNotEmpty == true ? title! : 'Net Flow'),
+          canGoBack: canGoBack,
+          canGoForward: canGoForward,
+        );
+      });
+    } catch (_) {
+      // Ignore callbacks from a WebView that was closed during navigation.
     }
-
-    setState(() {
-      _state = _state.copyWith(
-        currentUrl: url?.toString() ?? _state.currentUrl,
-        title: title?.isNotEmpty == true ? title! : 'Net Flow',
-        canGoBack: canGoBack,
-        canGoForward: canGoForward,
-      );
-    });
   }
 
   Future<void> _openExternal(String url) async {
-    final uri = Uri.tryParse(url);
-    final opened = uri != null &&
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
+    var opened = false;
+    try {
+      final uri = Uri.tryParse(url);
+      if (uri != null) {
+        opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+    } catch (_) {
+      // Missing or unsupported Android intent handlers are not page errors.
+    }
     if (!opened && mounted) {
-      setState(() {
-        _state = _state.copyWith(error: BrowserError.externalApp(url: url));
-      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('אין אפליקציה זמינה לפתיחת הקישור')),
+      );
     }
   }
 
@@ -621,26 +728,140 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
     );
   }
 
-  Future<void> _goBack() async {
-    await _webViewController?.goBack();
-    await _refreshNavigationState();
+  Future<void> _goBack() => _queueHistoryNavigation(-1);
+
+  Future<void> _goForward() => _queueHistoryNavigation(1);
+
+  Future<void> _queueHistoryNavigation(int direction) {
+    // Each tap uses the history position after the preceding native command.
+    // Concurrent taps must not race against one another's old snapshots.
+    // Remember the generation before queuing so that opening a new address
+    // can invalidate all queued history commands.
+    final generation = _explicitNavigationGeneration;
+    final next = _historyCommandQueue.then(
+      (_) => _navigateHistory(direction, generation),
+    );
+    _historyCommandQueue = next.catchError((Object _) {
+      // Keep later history requests usable even if a platform call fails.
+    });
+    return _historyCommandQueue;
   }
 
-  Future<void> _goForward() async {
-    await _webViewController?.goForward();
-    await _refreshNavigationState();
+  Future<void> _navigateHistory(int direction, int generation) async {
+    final controller = _webViewController;
+    if (!mounted ||
+        controller == null ||
+        generation != _explicitNavigationGeneration ||
+        _isHomeUrl(_state.currentUrl)) {
+      return;
+    }
+    final startingUrl = _state.currentUrl;
+
+    // Use the native back-forward list, not the app's previous URL (the
+    // latter is guarded against stale WebView callbacks).
+    WebHistory? history;
+    try {
+      history = await controller.getCopyBackForwardList();
+    } catch (_) {
+      // A disposed WebView can no longer navigate.
+      return;
+    }
+
+    final entries = history?.list;
+    final currentIndex = history?.currentIndex;
+    if (!mounted ||
+        _webViewController != controller ||
+        generation != _explicitNavigationGeneration ||
+        !BrowserNavigationGuard.urlsMatch(_state.currentUrl, startingUrl) ||
+        entries == null ||
+        currentIndex == null) {
+      return;
+    }
+    final targetIndex = currentIndex + direction;
+    if (targetIndex < 0 || targetIndex >= entries.length) {
+      await _refreshNavigationState();
+      return;
+    }
+
+    final targetUrl = entries[targetIndex].url?.toString();
+    if (targetUrl == null || targetUrl.isEmpty) {
+      await _refreshNavigationState();
+      return;
+    }
+
+    // A history destination is deliberately revisiting a previous URL.
+    // Authorize it *before* issuing goBack/goForward, otherwise the stale-
+    // event guard incorrectly discards this legitimate navigation.
+    final originalUrl = _state.currentUrl;
+    _navigationGuard.navigateTo(targetUrl);
+    final navigationRevision = _navigationGuard.revision;
+    _pendingHistoryTarget = targetUrl;
+    _historyDocumentStarted = false;
+    _deferredStoppedUrl = null;
+    _deferredStoppedRevision = null;
+    setState(() {
+      _state = _state.copyWith(
+        currentUrl: targetUrl,
+        title: 'Net Flow',
+        isLoading: true,
+        progress: 0,
+        canGoBack: targetIndex > 0,
+        canGoForward: targetIndex < entries.length - 1,
+      );
+    });
+
+    try {
+      if (direction < 0) {
+        await controller.goBack();
+      } else {
+        await controller.goForward();
+      }
+
+      // Some history entries are same-document transitions; onLoadStop will
+      // not be called for them. Reconcile the native URL after the command.
+      final activeUrl = await controller.getUrl();
+      if (mounted &&
+          _webViewController == controller &&
+          _navigationGuard.revision == navigationRevision &&
+          activeUrl != null) {
+        _finishHistoryWithoutDocumentLoad(activeUrl.toString());
+      }
+    } catch (_) {
+      if (!mounted || _webViewController != controller ||
+          !_navigationGuard.isCurrentUrl(targetUrl)) {
+        return;
+      }
+      // Recover the actual page if the WebView was detached mid-command.
+      _pendingHistoryTarget = null;
+      _historyDocumentStarted = false;
+      _navigationGuard.navigateTo(originalUrl);
+      _navigationGuard.cancelPending();
+      setState(() {
+        _state = _state.copyWith(
+          currentUrl: originalUrl,
+          isLoading: false,
+          progress: 0,
+        );
+      });
+    }
+    if (mounted && _webViewController == controller) {
+      await _refreshNavigationState();
+    }
   }
 
   Future<void> _reloadCurrent() async {
-    final error = _state.error;
-    if (error != null) {
-      await _loadUrl(error.url);
-      return;
-    }
+    _invalidateHistoryRequests();
     final controller = _webViewController;
     if (controller != null) {
-      await controller.reload();
-      return;
+      try {
+        await controller.reload();
+        return;
+      } catch (_) {
+        // Recreate the platform view only if its controller is invalid.
+        if (_webViewController == controller) {
+          _webViewController = null;
+        }
+      }
     }
     if (_state.currentUrl.isNotEmpty && !_isHomeUrl(_state.currentUrl)) {
       await _loadUrl(_state.currentUrl);
@@ -648,11 +869,18 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
   }
 
   Future<void> _stopLoading() async {
-    _cancelLoadTimeout();
-    await _webViewController?.stopLoading();
+    _invalidateHistoryRequests();
+    try {
+      await _webViewController?.stopLoading();
+    } catch (_) {
+      // Stopping an already disposed WebView is harmless.
+    }
     if (!mounted) {
       return;
     }
+    _pendingHistoryTarget = null;
+    _historyDocumentStarted = false;
+    _navigationGuard.cancelPending();
     setState(() {
       _state = _state.copyWith(isLoading: false, progress: 0);
     });
@@ -726,8 +954,9 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
     }
 
     final initialUrl = _initialWebViewUrl();
+    final viewSeed = _webViewSeed;
     return InAppWebView(
-      key: ValueKey('browser-webview-$_webViewSeed'),
+      key: ValueKey('browser-webview-$viewSeed'),
       initialUrlRequest: URLRequest(url: WebUri(initialUrl)),
       initialSettings: InAppWebViewSettings(
         javaScriptEnabled: true,
@@ -746,8 +975,11 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
         transparentBackground: false,
         isInspectable: kDebugMode,
       ),
-      onWebViewCreated: (controller) async {
-        _webViewController = controller;
+      onWebViewCreated: (controller) {
+        if (mounted && _webViewSeed == viewSeed) {
+          _webViewController = controller;
+          unawaited(_refreshNavigationState());
+        }
       },
       shouldOverrideUrlLoading: (_, action) => _handleNavigation(action),
       onCreateWindow: (controller, action) async {
@@ -760,75 +992,88 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
       onReceivedServerTrustAuthRequest: (_, __) async {
         return _netfreePolicy.serverTrustResponse();
       },
-      onLoadStart: (_, url) {
+      onLoadStart: (controller, url) {
+        if (!mounted || _webViewController != controller) {
+          return;
+        }
         final loadingUrl = url?.toString() ?? _state.currentUrl;
-        _startLoadTimeout(loadingUrl);
-        setState(() {
-          _pendingInitialUrl = null;
-          _state = _state.copyWith(
-            currentUrl: loadingUrl,
-            isLoading: true,
-            progress: 0,
-            clearError: true,
-          );
-        });
+        if (_navigationGuard.acceptLoadStart(loadingUrl)) {
+          if (_pendingHistoryTarget != null) {
+            _historyDocumentStarted = true;
+          }
+          _applyLoadStarted(loadingUrl);
+        } else if (_navigationGuard.isSupersededUrl(loadingUrl)) {
+          // Check the live page to distinguish a genuine redirect to an
+          // earlier address from an old callback queued by that page.
+          unawaited(_verifySupersededLoadStart(controller, loadingUrl));
+        }
       },
-      onProgressChanged: (_, progress) {
+      onProgressChanged: (controller, progress) {
+        if (!mounted || _webViewController != controller) {
+          return;
+        }
         setState(() {
+          // Progress may belong to an older request on the same WebView.
+          // Only load-stop or main-frame failure can finish a navigation.
           _state = _state.copyWith(progress: progress / 100);
         });
       },
-      onTitleChanged: (_, title) {
-        setState(() {
-          _state = _state.copyWith(title: title ?? 'Net Flow');
-        });
+      onTitleChanged: (controller, _) {
+        // A queued title callback has no URL and can belong to the old page.
+        // Read the live WebView title only after navigation has finished.
+        if (!mounted ||
+            _webViewController != controller ||
+            !_navigationGuard.canRefreshTitle ||
+            _state.isLoading) {
+          return;
+        }
+        unawaited(_refreshNavigationState());
       },
-      onLoadStop: (_, url) async {
-        _cancelLoadTimeout();
+      onLoadStop: (controller, url) async {
+        if (!mounted || _webViewController != controller) {
+          return;
+        }
         final stoppedUrl = url?.toString() ?? _state.currentUrl;
-        setState(() {
-          _pendingInitialUrl = null;
-          _state = _state.copyWith(
-            currentUrl: stoppedUrl,
-            isLoading: false,
-            progress: 1,
-          );
-        });
-        await _refreshNavigationState();
-        await _showBlankPageErrorIfNeeded(stoppedUrl);
-      },
-      onReceivedError: (_, request, error) {
-        if (request.isForMainFrame != true) {
+        if (!_navigationGuard.isCurrentUrl(stoppedUrl) ||
+            !_navigationGuard.acceptLoadStop(stoppedUrl)) {
+          // An ambiguous redirect might have finished while getUrl() was
+          // still pending. Remember the completion for the same revision.
+          if (_navigationGuard.isSupersededUrl(stoppedUrl)) {
+            _deferredStoppedUrl = stoppedUrl;
+            _deferredStoppedRevision = _navigationGuard.revision;
+          }
           return;
         }
-        _cancelLoadTimeout();
-        setState(() {
-          _state = _state.copyWith(
-            isLoading: false,
-            error: BrowserError.fromWebViewDescription(
-              url: request.url.toString(),
-              description: error.description,
-            ),
-          );
-        });
+        await _completeLoadStop(stoppedUrl);
       },
-      onReceivedHttpError: (_, request, response) {
-        if (request.isForMainFrame != true) {
+      onUpdateVisitedHistory: (controller, url, _) {
+        if (!mounted || _webViewController != controller || url == null) {
           return;
         }
-        _cancelLoadTimeout();
-        final statusCode = response.statusCode ?? 0;
-        if (statusCode >= 400) {
-          setState(() {
-            _state = _state.copyWith(
-              isLoading: false,
-              error: BrowserError.fromHttpStatus(
-                url: request.url.toString(),
-                statusCode: statusCode,
-              ),
-            );
-          });
+        final visitedUrl = url.toString();
+        if (_navigationGuard.acceptVisitedUrl(visitedUrl)) {
+          _applyVisitedUrl(visitedUrl);
+          _finishHistoryWithoutDocumentLoad(visitedUrl);
+        } else if (_navigationGuard.isSupersededUrl(visitedUrl)) {
+          unawaited(_verifySupersededHistory(controller, visitedUrl));
         }
+      },
+      onReceivedError: (controller, request, _) {
+        // Keep native WebView errors and filtering/interstitial pages visible.
+        // Subresource failures and stale navigation failures must not replace
+        // the current page or stop a different page's loading indicator.
+        if (!mounted ||
+            _webViewController != controller ||
+            request.isForMainFrame != true ||
+            !_navigationGuard.isCurrentUrl(request.url.toString())) {
+          return;
+        }
+        _pendingHistoryTarget = null;
+        _historyDocumentStarted = false;
+        _navigationGuard.cancelPending();
+        setState(() {
+          _state = _state.copyWith(isLoading: false, progress: 0);
+        });
       },
       onDownloadStartRequest: (_, request) => _handleDownload(request),
       onPermissionRequest: (_, request) => _handlePermissionRequest(request),
@@ -850,31 +1095,25 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
   }
 
   bool _isHomeUrl(String url) {
-    return url == _settings.homeUrl || url == 'about:blank';
+    return url == _settings.homeUrl;
   }
 
   @override
   Widget build(BuildContext context) {
-    final showHome = _state.error == null && _isHomeUrl(_state.currentUrl);
+    final showHome = _isHomeUrl(_state.currentUrl);
 
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.surface,
       body: Stack(
         children: [
           Positioned.fill(
-            child: _state.error != null
-                ? BrowserErrorView(
-                    error: _state.error!,
-                    onRetry: () => _loadUrl(_state.error!.url),
-                    onOpenExternally: () => _openExternal(_state.error!.url),
+            child: showHome
+                ? BrowserHomePage(
+                    onNavigate: _navigateFromHome,
+                    recentSearches: _searchHistory,
+                    bookmarks: _bookmarks,
                   )
-                : showHome
-                    ? BrowserHomePage(
-                        onNavigate: _navigateFromHome,
-                        recentSearches: _searchHistory,
-                        bookmarks: _bookmarks,
-                      )
-                    : _buildWebView(),
+                : _buildWebView(),
           ),
           if (_state.isLoading)
             Positioned(

@@ -1,0 +1,46 @@
+name: Flutter quality checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  flutter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Install dependencies
+        run: flutter pub get
+      - name: Analyze source
+        run: flutter analyze
+      - name: Run widget and unit tests
+        run: flutter test
+      - name: Build Android debug APK
+        run: bash .github/scripts/build-android-apk.sh debug
+      - name: Build Android release APK
+        run: bash .github/scripts/build-android-apk.sh release
+      - name: Upload release APK for verification
+        uses: actions/upload-artifact@v4
+        with:
+          name: net-flow-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload debug APK for manual device testing
+        uses: actions/upload-artifact@v4
+        with:
+          name: net-flow-debug-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7

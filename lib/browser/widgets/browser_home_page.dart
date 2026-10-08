@@ -89,101 +89,132 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
               child: LayoutBuilder(
                 builder: (context, constraints) {
                   final compact = constraints.maxHeight < 640;
-                  return Padding(
-                    padding: EdgeInsets.fromLTRB(18, compact ? 28 : 52, 18, 96),
-                    child: Column(
-                      children: [
-                        const Spacer(flex: 2),
-                        Text(
-                          'Net Flow',
-                          style: Theme.of(context)
-                              .textTheme
-                              .headlineMedium
-                              ?.copyWith(
-                                color: colorScheme.primary,
-                                fontWeight: FontWeight.w800,
-                              ),
+                  final veryCompact = constraints.maxHeight < 420;
+                  return SingleChildScrollView(
+                    keyboardDismissBehavior:
+                        ScrollViewKeyboardDismissBehavior.onDrag,
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        minHeight: constraints.maxHeight,
+                      ),
+                      child: Padding(
+                        padding: EdgeInsets.fromLTRB(
+                          18,
+                          veryCompact ? 12 : (compact ? 28 : 52),
+                          18,
+                          veryCompact ? 56 : 96,
                         ),
-                        SizedBox(height: compact ? 18 : 26),
-                        TextField(
-                          key: const Key('browser-home-search-field'),
-                          controller: _controller,
-                          focusNode: _focusNode,
-                          autofocus: false,
-                          textInputAction: TextInputAction.search,
-                          keyboardType: TextInputType.url,
-                          textDirection: _textDirection.textDirection,
-                          textAlign: _textDirection.textAlign,
-                          style: TextStyle(
-                            color: colorScheme.onSurface,
-                            fontSize: 19,
-                            fontWeight: FontWeight.w500,
-                            height: 1.12,
-                          ),
-                          minLines: 1,
-                          maxLines: 1,
-                          cursorColor: colorScheme.primary,
-                          onSubmitted: (_) => _submit(),
-                          decoration: InputDecoration(
-                            hintText: 'חיפוש או כתובת אתר',
-                            hintStyle: TextStyle(
-                              color: colorScheme.onSurfaceVariant.withValues(
-                                alpha: 0.86,
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Row(
+                              key: const Key('browser-home-brand-row'),
+                              mainAxisSize: MainAxisSize.min,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Image.asset(
+                                  'assets/icon_launcher.png',
+                                  key: const Key('browser-home-app-icon'),
+                                  width: veryCompact ? 42 : (compact ? 52 : 64),
+                                  height: veryCompact ? 42 : (compact ? 52 : 64),
+                                  fit: BoxFit.contain,
+                                  filterQuality: FilterQuality.medium,
+                                  semanticLabel: 'סמל Net Flow',
+                                ),
+                                SizedBox(width: compact ? 9 : 12),
+                                Text(
+                                  'Net Flow',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .headlineMedium
+                                      ?.copyWith(
+                                        color: colorScheme.primary,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                ),
+                              ],
+                            ),
+                            SizedBox(height: compact ? 18 : 26),
+                            TextField(
+                              key: const Key('browser-home-search-field'),
+                              controller: _controller,
+                              focusNode: _focusNode,
+                              autofocus: false,
+                              textInputAction: TextInputAction.search,
+                              keyboardType: TextInputType.url,
+                              textDirection: _textDirection.textDirection,
+                              textAlign: _textDirection.textAlign,
+                              style: TextStyle(
+                                color: colorScheme.onSurface,
+                                fontSize: 19,
+                                fontWeight: FontWeight.w500,
+                                height: 1.12,
                               ),
-                              fontSize: 19,
-                              fontWeight: FontWeight.w400,
+                              minLines: 1,
+                              maxLines: 1,
+                              cursorColor: colorScheme.primary,
+                              onSubmitted: (_) => _submit(),
+                              decoration: InputDecoration(
+                                hintText: 'חיפוש או כתובת אתר',
+                                hintStyle: TextStyle(
+                                  color: colorScheme.onSurfaceVariant.withValues(
+                                    alpha: 0.86,
+                                  ),
+                                  fontSize: 19,
+                                  fontWeight: FontWeight.w400,
+                                ),
+                                border: _homeSearchLine(
+                                  colorScheme.primary.withValues(alpha: 0.76),
+                                ),
+                                enabledBorder: _homeSearchLine(
+                                  colorScheme.onSurface.withValues(alpha: 0.62),
+                                ),
+                                focusedBorder: _homeSearchLine(
+                                  colorScheme.primary,
+                                  width: 2.3,
+                                ),
+                                prefixIcon: IconButton(
+                                  tooltip: 'חפש',
+                                  icon: const Icon(Icons.search),
+                                  color: colorScheme.onSurface,
+                                  onPressed: _submit,
+                                ),
+                                suffixIcon: IconButton(
+                                  tooltip: 'נקה',
+                                  icon: const Icon(Icons.close),
+                                  color: colorScheme.onSurface,
+                                  onPressed: _clearSearch,
+                                ),
+                                prefixIconConstraints:
+                                    const BoxConstraints.tightFor(
+                                  width: 48,
+                                  height: 48,
+                                ),
+                                suffixIconConstraints:
+                                    const BoxConstraints.tightFor(
+                                  width: 48,
+                                  height: 48,
+                                ),
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 12,
+                                ),
+                              ),
                             ),
-                            border: _homeSearchLine(
-                              colorScheme.primary.withValues(alpha: 0.76),
-                            ),
-                            enabledBorder: _homeSearchLine(
-                              colorScheme.onSurface.withValues(alpha: 0.62),
-                            ),
-                            focusedBorder: _homeSearchLine(
-                              colorScheme.primary,
-                              width: 2.3,
-                            ),
-                            prefixIcon: IconButton(
-                              tooltip: 'חפש',
-                              icon: const Icon(Icons.search),
-                              color: colorScheme.onSurface,
-                              onPressed: _submit,
-                            ),
-                            suffixIcon: IconButton(
-                              tooltip: 'נקה',
-                              icon: const Icon(Icons.close),
-                              color: colorScheme.onSurface,
-                              onPressed: _clearSearch,
-                            ),
-                            prefixIconConstraints:
-                                const BoxConstraints.tightFor(
-                              width: 48,
-                              height: 48,
-                            ),
-                            suffixIconConstraints:
-                                const BoxConstraints.tightFor(
-                              width: 48,
-                              height: 48,
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 12,
-                            ),
-                          ),
+                            if (_focusNode.hasFocus && suggestions.isNotEmpty) ...[
+                              const SizedBox(height: 8),
+                              _HomeSuggestionsPanel(
+                                suggestions: suggestions,
+                                onSelected: (suggestion) {
+                                  _controller.text = suggestion.value;
+                                  _submit(suggestion.value);
+                                },
+                                maxHeight: compact ? 168 : 220,
+                              ),
+                            ],
+                          ],
                         ),
-                        if (_focusNode.hasFocus && suggestions.isNotEmpty) ...[
-                          const SizedBox(height: 8),
-                          _HomeSuggestionsPanel(
-                            suggestions: suggestions,
-                            onSelected: (suggestion) {
-                              _controller.text = suggestion.value;
-                              _submit(suggestion.value);
-                            },
-                            maxHeight: compact ? 168 : 220,
-                          ),
-                        ],
-                        const Spacer(flex: 3),
-                      ],
+                      ),
                     ),
                   );
                 },
@@ -263,13 +294,11 @@ class _HomeSuggestionsPanel extends StatelessWidget {
     return ConstrainedBox(
       key: const Key('browser-home-suggestions-panel'),
       constraints: BoxConstraints(maxHeight: maxHeight),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: colorScheme.surface.withValues(alpha: 0.72),
-          border: Border.symmetric(
-            horizontal: BorderSide(
-              color: colorScheme.onSurface.withValues(alpha: 0.26),
-            ),
+      child: Material(
+        color: colorScheme.surface.withValues(alpha: 0.72),
+        shape: Border.symmetric(
+          horizontal: BorderSide(
+            color: colorScheme.onSurface.withValues(alpha: 0.26),
           ),
         ),
         child: ListView.builder(
