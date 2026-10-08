@@ -397,6 +397,24 @@ void main() {
     expect(find.byKey(const Key('browser-bottom-bar')), findsOneWidget);
   });
 
+  testWidgets('about:blank is a browser page, not an app error or home', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CompactBrowserPage(
+          androidChannel: FakeAndroidBrowserChannel(),
+          initialState: const BrowserState(currentUrl: 'about:blank'),
+          webViewOverride: const SizedBox(key: Key('fake-webview')),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('fake-webview')), findsOneWidget);
+    expect(find.byKey(const Key('browser-home-search-field')), findsNothing);
+  });
+
   testWidgets('slow loads remain in WebView past 12 seconds', (tester) async {
     await tester.pumpWidget(
       MaterialApp(

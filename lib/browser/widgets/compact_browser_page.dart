@@ -94,7 +94,7 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
 
   Future<String?> _safeGetInitialUrl() async {
     try {
-      return _androidChannel.getInitialUrl();
+      return await _androidChannel.getInitialUrl();
     } catch (_) {
       return null;
     }
@@ -756,6 +756,10 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
           return;
         }
         final stoppedUrl = url?.toString() ?? _state.currentUrl;
+        if (stoppedUrl != _state.currentUrl) {
+          // A superseded navigation may finish after a newer one has begun.
+          return;
+        }
         setState(() {
           _pendingInitialUrl = null;
           _state = _state.copyWith(
@@ -812,7 +816,7 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
   }
 
   bool _isHomeUrl(String url) {
-    return url == _settings.homeUrl || url == 'about:blank';
+    return url == _settings.homeUrl;
   }
 
   @override

@@ -11,7 +11,7 @@ permissions:
 jobs:
   flutter:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -26,3 +26,12 @@ jobs:
         run: flutter analyze
       - name: Run widget and unit tests
         run: flutter test
+      - name: Build Android debug APK
+        run: flutter build apk --debug
+      - name: Upload debug APK for manual device testing
+        uses: actions/upload-artifact@v4
+        with:
+          name: net-flow-debug-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
