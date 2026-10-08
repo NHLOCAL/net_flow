@@ -1,0 +1,80 @@
+name: Publish Android release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - pubspec.yaml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: net-flow-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build and publish APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Check out release commit
+        uses: actions/checkout@v5
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Read version and prevent duplicate releases
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          raw_version=$(sed -n 's/^version:[[:space:]]*//p' pubspec.yaml | head -n 1)
+          version="${raw_version%%+*}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Invalid pubspec.yaml version: $raw_version"
+            exit 1
+          fi
+          if gh release view "$version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Release $version already exists; bump pubspec.yaml first"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Install Flutter dependencies
+        run: flutter pub get
+      - name: Analyze source
+        run: flutter analyze
+      - name: Run all tests
+        run: flutter test
+      - name: Build release APK
+        run: bash .github/scripts/build-android-apk.sh release
+      - name: Publish GitHub Release with installable APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk "dist/net-flow-$VERSION.apk"
+          cat > "$RUNNER_TEMP/release-notes.md" <<'NOTES'
+          ## מה חדש ב-Net Flow
+
+          - ביטול מסכי שגיאה ייעודיים וטיימאאוט כפוי. תצוגת האתר נשארת פעילה גם באתרים איטיים ובדפי חסימה של נטפרי.
+          - תיקון יסודי של ניווט אחורה וקדימה, כולל היסטוריית WebView, לחיצות מהירות וניווט באתרים דינמיים.
+          - שילוב סמל Net Flow לצד שם האפליקציה בדף הבית.
+          - שיפורי ניווט, יציבות ובדיקות אוטומטיות, ועדכון רכיבי הבנייה.
+
+          **לתשומת לב:** בשלב זה הפרויקט משתמש בחתימת Debug גם בעת בניית APK במצב Release. חתימת הקובץ עשויה להיות שונה מזו של גרסאות קודמות, ולכן עדכון ישיר על התקנה קיימת אינו מובטח. יש לגבות נתונים לפני הסרת גרסה קודמת.
+          NOTES
+          gh release create "$VERSION" "dist/net-flow-$VERSION.apk" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Net Flow $VERSION" \
+            --notes-file "$RUNNER_TEMP/release-notes.md" \
+            --latest
