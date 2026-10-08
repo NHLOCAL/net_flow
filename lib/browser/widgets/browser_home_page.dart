@@ -287,13 +287,11 @@ class _HomeSuggestionsPanel extends StatelessWidget {
     return ConstrainedBox(
       key: const Key('browser-home-suggestions-panel'),
       constraints: BoxConstraints(maxHeight: maxHeight),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: colorScheme.surface.withValues(alpha: 0.72),
-          border: Border.symmetric(
-            horizontal: BorderSide(
-              color: colorScheme.onSurface.withValues(alpha: 0.26),
-            ),
+      child: Material(
+        color: colorScheme.surface.withValues(alpha: 0.72),
+        shape: Border.symmetric(
+          horizontal: BorderSide(
+            color: colorScheme.onSurface.withValues(alpha: 0.26),
           ),
         ),
         child: ListView.builder(
