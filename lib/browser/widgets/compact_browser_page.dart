@@ -63,6 +63,8 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
   String? _pendingInitialUrl;
   int _webViewSeed = 0;
   Future<void> _historyCommandQueue = Future<void>.value();
+  String? _pendingHistoryTarget;
+  bool _historyDocumentStarted = false;
   String? _deferredStoppedUrl;
   int? _deferredStoppedRevision;
   final NetfreeBrowserPolicy _netfreePolicy = const NetfreeBrowserPolicy();
@@ -138,6 +140,8 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
     if (!mounted) {
       return;
     }
+    _pendingHistoryTarget = null;
+    _historyDocumentStarted = false;
     _navigationGuard.navigateTo(url);
     setState(() {
       _pendingInitialUrl = controller == null ? url : null;
@@ -181,6 +185,8 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
       return;
     }
     // Show home immediately even if the remote site is still loading.
+    _pendingHistoryTarget = null;
+    _historyDocumentStarted = false;
     _navigationGuard.resetTo(_settings.homeUrl);
     setState(() {
       _pendingInitialUrl = null;
@@ -243,6 +249,9 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
       if (alreadyStopped && _navigationGuard.acceptLoadStop(url)) {
         await _completeLoadStop(url);
       } else {
+        if (_pendingHistoryTarget != null) {
+          _historyDocumentStarted = true;
+        }
         _applyLoadStarted(url);
       }
     } catch (_) {
@@ -254,6 +263,8 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
     if (!mounted) {
       return;
     }
+    _pendingHistoryTarget = null;
+    _historyDocumentStarted = false;
     setState(() {
       _pendingInitialUrl = null;
       _state = _state.copyWith(
@@ -296,6 +307,26 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
     } catch (_) {
       // Ignore stale history from a page that is no longer visible.
     }
+  }
+
+  void _finishHistoryWithoutDocumentLoad(String url) {
+    final expectedTarget = _pendingHistoryTarget;
+    if (!mounted ||
+        expectedTarget == null ||
+        _historyDocumentStarted ||
+        !_state.isLoading ||
+        !BrowserNavigationGuard.urlsMatch(url, expectedTarget) ||
+        !_navigationGuard.acceptLoadStop(url)) {
+      return;
+    }
+
+    // Same-document history (pushState, popstate or hash changes) need not
+    // emit onLoadStart/onLoadStop. The destination is already committed.
+    _pendingHistoryTarget = null;
+    setState(() {
+      _state = _state.copyWith(isLoading: false, progress: 1);
+    });
+    unawaited(_refreshNavigationState());
   }
 
   Future<void> _refreshNavigationState() async {
@@ -741,6 +772,8 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
     // event guard incorrectly discards this legitimate navigation.
     final originalUrl = _state.currentUrl;
     _navigationGuard.navigateTo(targetUrl);
+    _pendingHistoryTarget = targetUrl;
+    _historyDocumentStarted = false;
     _deferredStoppedUrl = null;
     _deferredStoppedRevision = null;
     setState(() {
@@ -760,12 +793,21 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
       } else {
         await controller.goForward();
       }
+
+      // Some history entries are same-document transitions; onLoadStop will
+      // not be called for them. Reconcile the native URL after the command.
+      final activeUrl = await controller.getUrl();
+      if (mounted && _webViewController == controller && activeUrl != null) {
+        _finishHistoryWithoutDocumentLoad(activeUrl.toString());
+      }
     } catch (_) {
       if (!mounted || _webViewController != controller ||
           !_navigationGuard.isCurrentUrl(targetUrl)) {
         return;
       }
       // Recover the actual page if the WebView was detached mid-command.
+      _pendingHistoryTarget = null;
+      _historyDocumentStarted = false;
       _navigationGuard.navigateTo(originalUrl);
       _navigationGuard.cancelPending();
       setState(() {
@@ -808,6 +850,8 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
     if (!mounted) {
       return;
     }
+    _pendingHistoryTarget = null;
+    _historyDocumentStarted = false;
     _navigationGuard.cancelPending();
     setState(() {
       _state = _state.copyWith(isLoading: false, progress: 0);
@@ -926,6 +970,9 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
         }
         final loadingUrl = url?.toString() ?? _state.currentUrl;
         if (_navigationGuard.acceptLoadStart(loadingUrl)) {
+          if (_pendingHistoryTarget != null) {
+            _historyDocumentStarted = true;
+          }
           _applyLoadStarted(loadingUrl);
         } else if (_navigationGuard.isSupersededUrl(loadingUrl)) {
           // Check the live page to distinguish a genuine redirect to an
@@ -978,6 +1025,7 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
         final visitedUrl = url.toString();
         if (_navigationGuard.acceptVisitedUrl(visitedUrl)) {
           _applyVisitedUrl(visitedUrl);
+          _finishHistoryWithoutDocumentLoad(visitedUrl);
         } else if (_navigationGuard.isSupersededUrl(visitedUrl)) {
           unawaited(_verifySupersededHistory(controller, visitedUrl));
         }
@@ -992,6 +1040,8 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
             !_navigationGuard.isCurrentUrl(request.url.toString())) {
           return;
         }
+        _pendingHistoryTarget = null;
+        _historyDocumentStarted = false;
         _navigationGuard.cancelPending();
         setState(() {
           _state = _state.copyWith(isLoading: false, progress: 0);

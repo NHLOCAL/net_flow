@@ -563,6 +563,10 @@ void main() {
     await tester.pump();
     expect(controller.currentIndex, 1);
     expect(controller.backCalls, 1);
+    // No load-stop callbacks occur for same-document (SPA) navigation.
+    // The toolbar must not remain stuck on its loading/stop state.
+    expect(find.byTooltip('רענן'), findsOneWidget);
+    expect(find.byTooltip('עצור'), findsNothing);
     expect(
       tester.widget<InkWell>(find.descendant(
         of: find.byKey(const Key('browser-forward-button')),
