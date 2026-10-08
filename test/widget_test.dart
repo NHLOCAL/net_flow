@@ -1017,6 +1017,10 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
 
     await tester.tap(find.byKey(const Key('browser-menu-button')));
+    // _showMenu asynchronously reads the native URL before creating the
+    // sheet; pump once to start it, then advance the sheet animation.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
     await tester.pump(const Duration(milliseconds: 400));
     await tester.tap(find.text('שמור'));
     await tester.pump(const Duration(milliseconds: 400));
