@@ -963,29 +963,41 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
         return _netfreePolicy.serverTrustResponse();
       },
       onLoadStart: (_, url) {
-        if (!mounted || viewSeed != _webViewSeed) return;
+        if (!mounted || viewSeed != _webViewSeed) {
+          return;
+        }
         _handlePageLoadStart(url?.toString() ?? _state.currentUrl);
       },
       onProgressChanged: (_, progress) {
-        if (!mounted || viewSeed != _webViewSeed) return;
+        if (!mounted || viewSeed != _webViewSeed) {
+          return;
+        }
         _handlePageProgress(progress);
       },
       onTitleChanged: (_, title) {
-        if (!mounted || viewSeed != _webViewSeed) return;
+        if (!mounted || viewSeed != _webViewSeed) {
+          return;
+        }
         _handlePageTitleChanged(title);
       },
       onLoadStop: (_, url) {
-        if (!mounted || viewSeed != _webViewSeed) return;
+        if (!mounted || viewSeed != _webViewSeed) {
+          return;
+        }
         _handlePageLoadStop(url?.toString() ?? _state.currentUrl);
       },
       onUpdateVisitedHistory: (_, url, __) {
-        if (!mounted || viewSeed != _webViewSeed || url == null) return;
+        if (!mounted || viewSeed != _webViewSeed || url == null) {
+          return;
+        }
         _handleVisitedHistory(url.toString());
       },
       onReceivedError: (_, request, __) {
         if (!mounted ||
             viewSeed != _webViewSeed ||
-            request.isForMainFrame != true) return;
+            request.isForMainFrame != true) {
+          return;
+        }
         _handleMainFrameError();
       },
       onDownloadStartRequest: (_, request) => _handleDownload(request),
