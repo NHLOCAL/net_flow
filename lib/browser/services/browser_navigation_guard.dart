@@ -1,17 +1,21 @@
 /// Tracks main-frame navigation on a WebView reused between addresses.
 ///
-/// Platform callbacks do not carry request IDs. Keep late events from an older
-/// page from overwriting the active URL, title and loading indicator.
+/// Native callbacks do not carry a navigation ID. Suppress callbacks for
+/// superseded URLs until the actual WebView URL confirms a deliberate return.
 class BrowserNavigationGuard {
   BrowserNavigationGuard({String? initialUrl}) : _activeUrl = initialUrl;
+
+  static const _maxSupersededUrls = 16;
 
   String? _activeUrl;
   String? _pendingRequestedUrl;
   bool _isNavigating = false;
-  final Set<String> _supersededHistoryUrls = <String>{};
+  final Set<String> _supersededUrls = <String>{};
 
   void navigateTo(String url) {
     _rememberPreviousUrl(url);
+    // An explicit user navigation back to an old address is always valid.
+    _forgetSuperseded(url);
     _activeUrl = url;
     _pendingRequestedUrl = url;
     _isNavigating = true;
@@ -21,33 +25,40 @@ class BrowserNavigationGuard {
     _activeUrl = url;
     _pendingRequestedUrl = null;
     _isNavigating = false;
-    _supersededHistoryUrls.clear();
+    _supersededUrls.clear();
   }
 
   bool acceptLoadStart(String url) {
-    if (_pendingRequestedUrl != null &&
-        !_sameUrl(_pendingRequestedUrl!, url)) {
+    if (!_matchesPendingRequest(url) || isSupersededUrl(url)) {
       return false;
     }
-    _rememberPreviousUrl(url);
-    _pendingRequestedUrl = null;
-    _activeUrl = url;
-    _isNavigating = true;
-    // A genuine redirect can load the earlier address again.
-    _supersededHistoryUrls.removeWhere((old) => _sameUrl(old, url));
+    _activateStart(url);
+    return true;
+  }
+
+  /// Call only when controller.getUrl() confirms this is the current page.
+  bool acceptVerifiedLoadStart(String url) {
+    if (!_matchesPendingRequest(url)) {
+      return false;
+    }
+    _activateStart(url);
     return true;
   }
 
   bool acceptVisitedUrl(String url) {
-    if (_pendingRequestedUrl != null &&
-        !_sameUrl(_pendingRequestedUrl!, url)) {
+    if (!_matchesPendingRequest(url) || isSupersededUrl(url)) {
       return false;
     }
-    // A previous page may emit history callbacks after the new load started.
-    if (_isNavigating &&
-        _supersededHistoryUrls.any((old) => _sameUrl(old, url))) {
+    _activeUrl = url;
+    return true;
+  }
+
+  /// Call only when controller.getUrl() confirms this history entry is live.
+  bool acceptVerifiedVisitedUrl(String url) {
+    if (!_matchesPendingRequest(url)) {
       return false;
     }
+    _forgetSuperseded(url);
     _activeUrl = url;
     return true;
   }
@@ -58,30 +69,54 @@ class BrowserNavigationGuard {
     }
     _pendingRequestedUrl = null;
     _isNavigating = false;
-    _supersededHistoryUrls.clear();
+    // Do not remove superseded URLs: queued callbacks may arrive even after
+    // the new page completed or a user deliberately stopped its loading.
     return true;
   }
 
   bool isCurrentUrl(String url) =>
       _activeUrl != null && _sameUrl(_activeUrl!, url);
 
-  /// A title event contains no URL; refresh the title only after load-stop.
+  bool isSupersededUrl(String url) =>
+      _supersededUrls.any((old) => _sameUrl(old, url));
+
   bool get canRefreshTitle => !_isNavigating;
 
   void cancelPending() {
     _pendingRequestedUrl = null;
     _isNavigating = false;
-    _supersededHistoryUrls.clear();
+    // Preserve stale-event protection after stopLoading/main-frame errors.
   }
+
+  void _activateStart(String url) {
+    _rememberPreviousUrl(url);
+    _forgetSuperseded(url);
+    _activeUrl = url;
+    _pendingRequestedUrl = null;
+    _isNavigating = true;
+  }
+
+  bool _matchesPendingRequest(String url) =>
+      _pendingRequestedUrl == null ||
+      _sameUrl(_pendingRequestedUrl!, url);
 
   void _rememberPreviousUrl(String nextUrl) {
     final previous = _activeUrl;
     if (previous != null && !_sameUrl(previous, nextUrl)) {
-      _supersededHistoryUrls.add(previous);
+      _supersededUrls.add(previous);
+      if (_supersededUrls.length > _maxSupersededUrls) {
+        _supersededUrls.remove(_supersededUrls.first);
+      }
     }
   }
 
-  /// Chromium may add '/' to bare origins and omit default 80/443 ports.
+  void _forgetSuperseded(String url) {
+    _supersededUrls.removeWhere((old) => _sameUrl(old, url));
+  }
+
+  static bool urlsMatch(String first, String second) => _sameUrl(first, second);
+
+  /// Compare canonical components, including default HTTP(S) ports.
   static bool _sameUrl(String first, String second) {
     if (first == second) {
       return true;

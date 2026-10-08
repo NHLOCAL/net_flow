@@ -192,6 +192,70 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
     }
   }
 
+  void _applyLoadStarted(String url) {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _pendingInitialUrl = null;
+      _state = _state.copyWith(
+        currentUrl: url,
+        isLoading: true,
+        progress: 0,
+      );
+    });
+  }
+
+  Future<void> _verifySupersededLoadStart(
+    InAppWebViewController controller,
+    String url,
+  ) async {
+    try {
+      final currentUrl = await controller.getUrl();
+      if (!mounted ||
+          _webViewController != controller ||
+          currentUrl == null ||
+          !BrowserNavigationGuard.urlsMatch(currentUrl.toString(), url) ||
+          !_navigationGuard.acceptVerifiedLoadStart(url)) {
+        return;
+      }
+      _applyLoadStarted(url);
+    } catch (_) {
+      // Do not let a stale platform callback replace the active navigation.
+    }
+  }
+
+  void _applyVisitedUrl(String url) {
+    if (!mounted) {
+      return;
+    }
+    if (url != _state.currentUrl) {
+      setState(() {
+        _state = _state.copyWith(currentUrl: url);
+      });
+    }
+    unawaited(_refreshNavigationState());
+  }
+
+  Future<void> _verifySupersededHistory(
+    InAppWebViewController controller,
+    String url,
+  ) async {
+    try {
+      final currentUrl = await controller.getUrl();
+      if (!mounted ||
+          _webViewController != controller ||
+          currentUrl == null ||
+          !BrowserNavigationGuard.urlsMatch(currentUrl.toString(), url) ||
+          !_navigationGuard.acceptVerifiedVisitedUrl(url)) {
+        return;
+      }
+      _applyVisitedUrl(url);
+    } catch (_) {
+      // Ignore stale history from a page that is no longer visible.
+    }
+  }
+
   Future<void> _refreshNavigationState() async {
     final controller = _webViewController;
     if (controller == null || !mounted) {
@@ -733,17 +797,13 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
           return;
         }
         final loadingUrl = url?.toString() ?? _state.currentUrl;
-        if (!_navigationGuard.acceptLoadStart(loadingUrl)) {
-          return;
+        if (_navigationGuard.acceptLoadStart(loadingUrl)) {
+          _applyLoadStarted(loadingUrl);
+        } else if (_navigationGuard.isSupersededUrl(loadingUrl)) {
+          // Check the live page to distinguish a genuine redirect to an
+          // earlier address from an old callback queued by that page.
+          unawaited(_verifySupersededLoadStart(controller, loadingUrl));
         }
-        setState(() {
-          _pendingInitialUrl = null;
-          _state = _state.copyWith(
-            currentUrl: loadingUrl,
-            isLoading: true,
-            progress: 0,
-          );
-        });
       },
       onProgressChanged: (controller, progress) {
         if (!mounted || _webViewController != controller) {
@@ -791,15 +851,11 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
           return;
         }
         final visitedUrl = url.toString();
-        if (!_navigationGuard.acceptVisitedUrl(visitedUrl)) {
-          return;
+        if (_navigationGuard.acceptVisitedUrl(visitedUrl)) {
+          _applyVisitedUrl(visitedUrl);
+        } else if (_navigationGuard.isSupersededUrl(visitedUrl)) {
+          unawaited(_verifySupersededHistory(controller, visitedUrl));
         }
-        if (visitedUrl != _state.currentUrl) {
-          setState(() {
-            _state = _state.copyWith(currentUrl: visitedUrl);
-          });
-        }
-        unawaited(_refreshNavigationState());
       },
       onReceivedError: (controller, request, _) {
         // Keep native WebView errors and filtering/interstitial pages visible.

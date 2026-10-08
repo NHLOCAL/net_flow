@@ -92,7 +92,8 @@ void main() {
     final guard = BrowserNavigationGuard(initialUrl: 'https://a.test/');
     guard.navigateTo('https://b.test/');
     expect(guard.acceptLoadStart('https://b.test/'), isTrue);
-    expect(guard.acceptLoadStart('https://a.test/'), isTrue);
+    expect(guard.acceptLoadStart('https://a.test/'), isFalse);
+    expect(guard.acceptVerifiedLoadStart('https://a.test/'), isTrue);
     expect(guard.acceptVisitedUrl('https://a.test/'), isTrue);
     expect(guard.acceptLoadStop('https://a.test/'), isTrue);
   });
@@ -125,6 +126,68 @@ void main() {
     expect(guard.canRefreshTitle, isFalse);
     expect(guard.acceptLoadStop('https://b.test/'), isTrue);
     expect(guard.canRefreshTitle, isTrue);
+  });
+
+  test('late load-start from A stays blocked after B starts', () {
+    final guard = BrowserNavigationGuard(initialUrl: 'https://a.test/');
+    guard.navigateTo('https://b.test/');
+    expect(guard.acceptLoadStart('https://b.test/'), isTrue);
+
+    expect(guard.acceptLoadStart('https://a.test/'), isFalse);
+    expect(guard.isCurrentUrl('https://b.test/'), isTrue);
+    expect(guard.acceptLoadStop('https://b.test/'), isTrue);
+  });
+
+  test('stale history remains rejected after stop or failure', () {
+    final guard = BrowserNavigationGuard(initialUrl: 'https://a.test/');
+    guard.navigateTo('https://b.test/');
+    expect(guard.acceptLoadStart('https://b.test/'), isTrue);
+    guard.cancelPending();
+
+    expect(guard.acceptVisitedUrl('https://a.test/'), isFalse);
+    expect(guard.acceptLoadStart('https://a.test/'), isFalse);
+    expect(guard.isCurrentUrl('https://b.test/'), isTrue);
+    expect(guard.canRefreshTitle, isTrue);
+  });
+
+  test('stale history remains rejected even after B finishes', () {
+    final guard = BrowserNavigationGuard(initialUrl: 'https://a.test/');
+    guard.navigateTo('https://b.test/');
+    expect(guard.acceptLoadStart('https://b.test/'), isTrue);
+    expect(guard.acceptLoadStop('https://b.test/'), isTrue);
+
+    expect(guard.acceptVisitedUrl('https://a.test/'), isFalse);
+    expect(guard.isCurrentUrl('https://b.test/'), isTrue);
+  });
+
+  test('verified WebView redirect can revisit a superseded URL', () {
+    final guard = BrowserNavigationGuard(initialUrl: 'https://a.test/');
+    guard.navigateTo('https://b.test/');
+    expect(guard.acceptLoadStart('https://b.test/'), isTrue);
+    expect(guard.acceptLoadStart('https://a.test/'), isFalse);
+    expect(guard.acceptVerifiedLoadStart('https://a.test/'), isTrue);
+    expect(guard.acceptLoadStop('https://a.test/'), isTrue);
+  });
+
+  test('verified WebView history can return to a prior page', () {
+    final guard = BrowserNavigationGuard(initialUrl: 'https://a.test/');
+    guard.navigateTo('https://b.test/');
+    expect(guard.acceptLoadStart('https://b.test/'), isTrue);
+    expect(guard.acceptLoadStop('https://b.test/'), isTrue);
+    expect(guard.acceptVisitedUrl('https://a.test/'), isFalse);
+    expect(guard.acceptVerifiedVisitedUrl('https://a.test/'), isTrue);
+    expect(guard.isCurrentUrl('https://a.test/'), isTrue);
+  });
+
+  test('verified callbacks cannot supersede a newer explicit request', () {
+    final guard = BrowserNavigationGuard(initialUrl: 'https://a.test/');
+    guard.navigateTo('https://b.test/');
+    expect(guard.acceptLoadStart('https://b.test/'), isTrue);
+    guard.navigateTo('https://c.test/');
+
+    expect(guard.acceptVerifiedLoadStart('https://a.test/'), isFalse);
+    expect(guard.acceptVerifiedVisitedUrl('https://a.test/'), isFalse);
+    expect(guard.isCurrentUrl('https://c.test/'), isTrue);
   });
 
   test('reset and cancellation do not leave a pending URL', () {
