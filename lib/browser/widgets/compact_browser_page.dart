@@ -130,6 +130,16 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
     await _loadUrl(input);
   }
 
+  void _invalidateHistoryRequests() {
+    // Any queued work from the prior address belongs to a different
+    // generation. Replace the queue rather than chaining new taps behind a
+    // platform history query that may never complete.
+    _explicitNavigationGeneration++;
+    _historyCommandQueue = Future<void>.value();
+    _pendingHistoryTarget = null;
+    _historyDocumentStarted = false;
+  }
+
   Future<void> _loadUrl(String input) async {
     final url = BrowserUrlResolver(settings: _settings).resolve(input);
     if (_isHomeUrl(url)) {
@@ -143,9 +153,7 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
     if (!mounted) {
       return;
     }
-    _explicitNavigationGeneration++;
-    _pendingHistoryTarget = null;
-    _historyDocumentStarted = false;
+    _invalidateHistoryRequests();
     _navigationGuard.navigateTo(url);
     setState(() {
       _pendingInitialUrl = controller == null ? url : null;
@@ -189,9 +197,7 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
       return;
     }
     // Show home immediately even if the remote site is still loading.
-    _explicitNavigationGeneration++;
-    _pendingHistoryTarget = null;
-    _historyDocumentStarted = false;
+    _invalidateHistoryRequests();
     _navigationGuard.resetTo(_settings.homeUrl);
     setState(() {
       _pendingInitialUrl = null;
@@ -844,7 +850,7 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
   }
 
   Future<void> _reloadCurrent() async {
-    _explicitNavigationGeneration++;
+    _invalidateHistoryRequests();
     final controller = _webViewController;
     if (controller != null) {
       try {
@@ -863,7 +869,7 @@ class _CompactBrowserPageState extends State<CompactBrowserPage> {
   }
 
   Future<void> _stopLoading() async {
-    _explicitNavigationGeneration++;
+    _invalidateHistoryRequests();
     try {
       await _webViewController?.stopLoading();
     } catch (_) {

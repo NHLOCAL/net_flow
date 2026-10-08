@@ -739,6 +739,65 @@ void main() {
     expect(controller.currentIndex, 3);
   });
 
+  testWidgets('new back taps bypass a canceled stalled history query', (
+    tester,
+  ) async {
+    final controller = FakeHistoryWebViewController(
+      urls: <String>[
+        'https://one.test/',
+        'https://two.test/',
+        'https://three.test/',
+      ],
+      currentIndex: 2,
+    );
+    final channel = FakeAndroidBrowserChannel();
+    final staleQuery = Completer<WebHistory?>();
+    controller.pendingHistoryQuery = staleQuery;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CompactBrowserPage(
+          androidChannel: channel,
+          webViewOverride: const SizedBox(key: Key('fake-webview')),
+          webViewControllerOverride: controller,
+          initialState: const BrowserState(
+            currentUrl: 'https://three.test/',
+            canGoBack: true,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('browser-back-button')));
+    await tester.pump();
+    expect(controller.backCalls, 0);
+
+    // The old WebView history query is still awaiting its response.
+    await channel.openUrlHandler?.call('https://new.test/');
+    await tester.pump();
+    expect(controller.currentIndex, 3);
+
+    // Back on the NEW page must work without waiting for the OLD query.
+    await tester.tap(find.byKey(const Key('browser-back-button')));
+    await tester.pump();
+    await tester.pump();
+    expect(controller.backCalls, 1);
+    expect(controller.currentIndex, 2);
+
+    // Resolving the abandoned query must not perform a second back.
+    staleQuery.complete(WebHistory(
+      currentIndex: 2,
+      list: [
+        WebHistoryItem(url: WebUri('https://one.test/')),
+        WebHistoryItem(url: WebUri('https://two.test/')),
+        WebHistoryItem(url: WebUri('https://three.test/')),
+      ],
+    ));
+    await tester.pump();
+    expect(controller.backCalls, 1);
+    expect(controller.currentIndex, 2);
+  });
+
   testWidgets('no history navigation happens outside native boundaries', (
     tester,
   ) async {
