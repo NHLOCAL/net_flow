@@ -44,15 +44,17 @@ class FakeHistoryWebViewController extends Fake
   int currentIndex;
   int backCalls = 0;
   int forwardCalls = 0;
-  Completer<WebHistory?>? pendingHistoryQuery;
+  Completer<bool>? pendingBackAvailability;
+  bool nativeIsLoading = false;
+
+  void visit(String url) {
+    urls.removeRange(currentIndex + 1, urls.length);
+    urls.add(url);
+    currentIndex = urls.length - 1;
+  }
 
   @override
   Future<WebHistory?> getCopyBackForwardList() async {
-    final delayed = pendingHistoryQuery;
-    if (delayed != null) {
-      pendingHistoryQuery = null;
-      return delayed.future;
-    }
     return WebHistory(
       currentIndex: currentIndex,
       list: [
@@ -72,9 +74,7 @@ class FakeHistoryWebViewController extends Fake
     if (newUrl == null) {
       return;
     }
-    urls.removeRange(currentIndex + 1, urls.length);
-    urls.add(newUrl);
-    currentIndex = urls.length - 1;
+    visit(newUrl);
   }
 
   @override
@@ -94,10 +94,20 @@ class FakeHistoryWebViewController extends Fake
   }
 
   @override
-  Future<bool> canGoBack() async => currentIndex > 0;
+  Future<bool> canGoBack() async {
+    final delayed = pendingBackAvailability;
+    if (delayed != null) {
+      pendingBackAvailability = null;
+      return delayed.future;
+    }
+    return currentIndex > 0;
+  }
 
   @override
   Future<bool> canGoForward() async => currentIndex < urls.length - 1;
+
+  @override
+  Future<bool> isLoading() async => nativeIsLoading;
 
   @override
   Future<WebUri?> getUrl() async => WebUri(urls[currentIndex]);
@@ -698,8 +708,8 @@ void main() {
       currentIndex: 2,
     );
     final channel = FakeAndroidBrowserChannel();
-    final pending = Completer<WebHistory?>();
-    controller.pendingHistoryQuery = pending;
+    final pending = Completer<bool>();
+    controller.pendingBackAvailability = pending;
 
     await tester.pumpWidget(
       MaterialApp(
@@ -724,14 +734,7 @@ void main() {
     await tester.pump();
     expect(controller.currentIndex, 3);
 
-    pending.complete(WebHistory(
-      currentIndex: 2,
-      list: [
-        WebHistoryItem(url: WebUri('https://one.test/')),
-        WebHistoryItem(url: WebUri('https://two.test/')),
-        WebHistoryItem(url: WebUri('https://three.test/')),
-      ],
-    ));
+    pending.complete(true);
     await tester.pump();
     await tester.pump();
 
@@ -751,8 +754,8 @@ void main() {
       currentIndex: 2,
     );
     final channel = FakeAndroidBrowserChannel();
-    final staleQuery = Completer<WebHistory?>();
-    controller.pendingHistoryQuery = staleQuery;
+    final staleQuery = Completer<bool>();
+    controller.pendingBackAvailability = staleQuery;
     await tester.pumpWidget(
       MaterialApp(
         home: CompactBrowserPage(
@@ -785,14 +788,7 @@ void main() {
     expect(controller.currentIndex, 2);
 
     // Resolving the abandoned query must not perform a second back.
-    staleQuery.complete(WebHistory(
-      currentIndex: 2,
-      list: [
-        WebHistoryItem(url: WebUri('https://one.test/')),
-        WebHistoryItem(url: WebUri('https://two.test/')),
-        WebHistoryItem(url: WebUri('https://three.test/')),
-      ],
-    ));
+    staleQuery.complete(true);
     await tester.pump();
     expect(controller.backCalls, 1);
     expect(controller.currentIndex, 2);
@@ -837,6 +833,301 @@ void main() {
     );
     expect(controller.backCalls, 0);
     expect(controller.forwardCalls, 0);
+  });
+
+  testWidgets('Google redirect and clicked link update address and bookmark',
+      (tester) async {
+    final events = BrowserWebViewTestEvents();
+    final controller = FakeHistoryWebViewController(
+      urls: <String>['https://google.com/'],
+      currentIndex: 0,
+    );
+    await tester.pumpWidget(MaterialApp(
+      home: CompactBrowserPage(
+        androidChannel: FakeAndroidBrowserChannel(),
+        webViewOverride: const SizedBox(key: Key('fake-webview')),
+        webViewControllerOverride: controller,
+        webViewTestEvents: events,
+        initialState: const BrowserState(currentUrl: 'https://google.com/'),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    controller.urls[0] = 'https://www.google.com/';
+    events.loadStarted?.call('https://www.google.com/');
+    events.loadStopped?.call('https://www.google.com/');
+    await tester.pumpAndSettle();
+
+    const article = 'https://example.org/articles/real-page?ref=google';
+    controller.visit(article);
+    events.loadStarted?.call(article);
+    events.visitedHistory?.call(article);
+    events.loadStopped?.call(article);
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<InkWell>(find.descendant(
+        of: find.byKey(const Key('browser-back-button')),
+        matching: find.byType(InkWell),
+      )).onTap,
+      isNotNull,
+    );
+
+    await tester.tap(find.byKey(const Key('browser-menu-button')));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<TextField>(
+        find.byKey(const Key('browser-address-field')),
+      ).controller?.text,
+      article,
+    );
+    await tester.tap(find.text('שמור'));
+    await tester.pumpAndSettle();
+
+    final preferences = await SharedPreferences.getInstance();
+    final bookmarks = jsonDecode(
+      preferences.getString('bookmarks')!,
+    ) as List<dynamic>;
+    expect((bookmarks.first as Map<String, dynamic>)['url'], article);
+
+    await tester.tap(find.byKey(const Key('browser-back-button')));
+    await tester.pumpAndSettle();
+    expect(controller.currentIndex, 0);
+    expect(controller.backCalls, 1);
+    await tester.tap(find.byKey(const Key('browser-forward-button')));
+    await tester.pumpAndSettle();
+    expect(controller.currentIndex, 1);
+    expect(controller.forwardCalls, 1);
+  });
+
+  testWidgets('bookmark reads native page even before its callback arrives',
+      (tester) async {
+    final controller = FakeHistoryWebViewController(
+      urls: <String>['https://google.com/'],
+      currentIndex: 0,
+    );
+    await tester.pumpWidget(MaterialApp(
+      home: CompactBrowserPage(
+        androidChannel: FakeAndroidBrowserChannel(),
+        webViewOverride: const SizedBox(key: Key('fake-webview')),
+        webViewControllerOverride: controller,
+        initialState: const BrowserState(currentUrl: 'https://google.com/'),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    const realPage = 'https://news.example.org/new-article';
+    controller.visit(realPage);
+    await tester.tap(find.byKey(const Key('browser-menu-button')));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<TextField>(
+        find.byKey(const Key('browser-address-field')),
+      ).controller?.text,
+      realPage,
+    );
+    await tester.tap(find.text('שמור'));
+    await tester.pumpAndSettle();
+
+    final preferences = await SharedPreferences.getInstance();
+    final bookmarks = jsonDecode(
+      preferences.getString('bookmarks')!,
+    ) as List<dynamic>;
+    expect((bookmarks.first as Map<String, dynamic>)['url'], realPage);
+  });
+
+  testWidgets('SPA visited-history updates location without document load',
+      (tester) async {
+    final events = BrowserWebViewTestEvents();
+    final controller = FakeHistoryWebViewController(
+      urls: <String>['https://example.org/app'],
+      currentIndex: 0,
+    );
+    await tester.pumpWidget(MaterialApp(
+      home: CompactBrowserPage(
+        androidChannel: FakeAndroidBrowserChannel(),
+        webViewOverride: const SizedBox(key: Key('fake-webview')),
+        webViewControllerOverride: controller,
+        webViewTestEvents: events,
+        initialState: const BrowserState(currentUrl: 'https://example.org/app'),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    const pushedUrl = 'https://example.org/app#chapter-two';
+    controller.visit(pushedUrl);
+    events.visitedHistory?.call(pushedUrl);
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('רענן'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('browser-menu-button')));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<TextField>(
+        find.byKey(const Key('browser-address-field')),
+      ).controller?.text,
+      pushedUrl,
+    );
+  });
+
+  testWidgets('ignore stale main-frame failures from earlier pages',
+      (tester) async {
+    final events = BrowserWebViewTestEvents();
+    final controller = FakeHistoryWebViewController(
+      urls: <String>['https://second.example/'],
+      currentIndex: 0,
+    );
+    await tester.pumpWidget(MaterialApp(
+      home: CompactBrowserPage(
+        androidChannel: FakeAndroidBrowserChannel(),
+        webViewOverride: const SizedBox(key: Key('fake-webview')),
+        webViewControllerOverride: controller,
+        webViewTestEvents: events,
+        initialState: const BrowserState(
+          currentUrl: 'https://second.example/',
+          isLoading: true,
+        ),
+      ),
+    ));
+    await tester.pump(const Duration(milliseconds: 400));
+
+    events.loadStarted?.call('https://second.example/');
+    events.mainFrameError?.call('https://first.example/');
+    await tester.pump();
+    expect(find.byTooltip('עצור'), findsOneWidget);
+
+    events.mainFrameError?.call('https://second.example/');
+    await tester.pump();
+    expect(find.byTooltip('רענן'), findsOneWidget);
+  });
+
+  testWidgets('do not bookmark native about blank during pending navigation',
+      (tester) async {
+    final controller = FakeHistoryWebViewController(
+      urls: <String>['about:blank'],
+      currentIndex: 0,
+    );
+    await tester.pumpWidget(MaterialApp(
+      home: CompactBrowserPage(
+        androidChannel: FakeAndroidBrowserChannel(),
+        webViewOverride: const SizedBox(key: Key('fake-webview')),
+        webViewControllerOverride: controller,
+        initialState: const BrowserState(
+          currentUrl: 'https://intended.example/article',
+          isLoading: true,
+        ),
+      ),
+    ));
+    await tester.pump(const Duration(milliseconds: 400));
+
+    await tester.tap(find.byKey(const Key('browser-menu-button')));
+    // _showMenu asynchronously reads the native URL before creating the
+    // sheet; pump once to start it, then advance the sheet animation.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.text('שמור'));
+    await tester.pump(const Duration(milliseconds: 400));
+
+    final preferences = await SharedPreferences.getInstance();
+    final bookmarks = jsonDecode(
+      preferences.getString('bookmarks')!,
+    ) as List<dynamic>;
+    expect((bookmarks.first as Map<String, dynamic>)['url'],
+        'https://intended.example/article');
+  });
+
+  testWidgets('superseded load-stop does not clear a newer page loading',
+      (tester) async {
+    final events = BrowserWebViewTestEvents();
+    final controller = FakeHistoryWebViewController(
+      urls: <String>['https://new.example/'],
+      currentIndex: 0,
+    );
+    await tester.pumpWidget(MaterialApp(
+      home: CompactBrowserPage(
+        androidChannel: FakeAndroidBrowserChannel(),
+        webViewOverride: const SizedBox(key: Key('fake-webview')),
+        webViewControllerOverride: controller,
+        webViewTestEvents: events,
+        initialState: const BrowserState(
+          currentUrl: 'https://new.example/',
+          isLoading: true,
+        ),
+      ),
+    ));
+    await tester.pump(const Duration(milliseconds: 200));
+
+    events.loadStarted?.call('https://new.example/');
+    events.loadStopped?.call('https://old.example/');
+    await tester.pump();
+    expect(find.byTooltip('עצור'), findsOneWidget);
+
+    events.loadStopped?.call('https://new.example/');
+    await tester.pump();
+    expect(find.byTooltip('רענן'), findsOneWidget);
+  });
+
+  testWidgets('same-URL superseded load-stop keeps replacement loading',
+      (tester) async {
+    final events = BrowserWebViewTestEvents();
+    final controller = FakeHistoryWebViewController(
+      urls: <String>['https://same.example/'],
+      currentIndex: 0,
+    )..nativeIsLoading = true;
+    await tester.pumpWidget(MaterialApp(
+      home: CompactBrowserPage(
+        androidChannel: FakeAndroidBrowserChannel(),
+        webViewOverride: const SizedBox(key: Key('fake-webview')),
+        webViewControllerOverride: controller,
+        webViewTestEvents: events,
+        initialState: const BrowserState(
+          currentUrl: 'https://same.example/',
+          isLoading: true,
+        ),
+      ),
+    ));
+    await tester.pump(const Duration(milliseconds: 250));
+    events.loadStarted?.call('https://same.example/');
+    events.loadStopped?.call('https://same.example/');
+    await tester.pump();
+    expect(find.byTooltip('עצור'), findsOneWidget);
+    controller.nativeIsLoading = false;
+    events.loadStopped?.call('https://same.example/');
+    await tester.pump();
+    expect(find.byTooltip('רענן'), findsOneWidget);
+  });
+
+  testWidgets('same-URL reload ignores error while native loading continues',
+      (tester) async {
+    final events = BrowserWebViewTestEvents();
+    final controller = FakeHistoryWebViewController(
+      urls: <String>['https://page.example/'],
+      currentIndex: 0,
+    )..nativeIsLoading = true;
+    await tester.pumpWidget(MaterialApp(
+      home: CompactBrowserPage(
+        androidChannel: FakeAndroidBrowserChannel(),
+        webViewOverride: const SizedBox(key: Key('fake-webview')),
+        webViewControllerOverride: controller,
+        webViewTestEvents: events,
+        initialState: const BrowserState(
+          currentUrl: 'https://page.example/',
+          isLoading: true,
+        ),
+      ),
+    ));
+    await tester.pump(const Duration(milliseconds: 200));
+
+    events.loadStarted?.call('https://page.example/');
+    events.mainFrameError?.call('https://page.example/');
+    await tester.pump();
+    expect(find.byTooltip('עצור'), findsOneWidget);
+
+    controller.nativeIsLoading = false;
+    events.mainFrameError?.call('https://page.example/');
+    await tester.pump();
+    expect(find.byTooltip('רענן'), findsOneWidget);
   });
 
 }
